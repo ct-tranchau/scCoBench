@@ -1,0 +1,1323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>scCoBench: Evaluating and improving gene co-expression in single-cell RNA-seq with a biological ground truth</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,900&family=JetBrains+Mono:wght@400;500;700&family=Spectral:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0c0e0d;
+    --panel:#13166d00;
+    --panel-solid:#15191a;
+    --line:#2a3130;
+    --ink:#e9e7df;
+    --muted:#8a948f;
+    --lime:#c8f24a;
+    --lime-dim:#7e9a2e;
+    --cyan:#54d6c4;
+    --coral:#ff6b5e;
+    --amber:#f2b84a;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{background:var(--bg);color:var(--ink);font-family:'Spectral',serif}
+  body{
+    min-height:100vh;
+    background-image:
+      radial-gradient(circle at 12% 8%, rgba(200,242,74,.06), transparent 40%),
+      radial-gradient(circle at 88% 92%, rgba(84,214,196,.05), transparent 45%),
+      linear-gradient(var(--line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--line) 1px, transparent 1px);
+    background-size:auto,auto,42px 42px,42px 42px;
+    background-position:0 0,0 0,-1px -1px,-1px -1px;
+  }
+  .mono{font-family:'JetBrains Mono',monospace}
+  .wrap{max-width:1080px;margin:0 auto;padding:34px 22px 90px}
+
+  /* header */
+  header{display:flex;align-items:flex-end;justify-content:space-between;gap:18px;flex-wrap:wrap;border-bottom:1px solid var(--line);padding-bottom:20px}
+  .brand h1{font-family:'Fraunces',serif;font-weight:900;font-size:clamp(34px,6vw,62px);line-height:.92;letter-spacing:-.02em}
+  .brand h1 em{font-style:italic;color:var(--lime)}
+  .brand p{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);margin-top:10px;letter-spacing:.04em;text-transform:uppercase}
+  .stat-strip{display:flex;gap:18px;flex-wrap:wrap}
+  .stat{font-family:'JetBrains Mono',monospace}
+  .stat b{display:block;color:var(--lime);font-size:21px;font-weight:700}
+  .stat span{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
+
+  /* tabs */
+  nav{display:flex;gap:6px;margin:26px 0 22px;flex-wrap:wrap}
+  .tab{font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.05em;color:var(--muted);background:transparent;border:1px solid var(--line);padding:9px 15px;cursor:pointer;text-transform:uppercase;transition:.18s;border-radius:2px}
+  .tab:hover{color:var(--ink);border-color:var(--lime-dim)}
+  .tab.on{color:var(--bg);background:var(--lime);border-color:var(--lime);font-weight:700}
+
+  .view{display:none;animation:fade .4s ease}
+  .view.on{display:block}
+  @keyframes fade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+
+  .card{background:var(--panel-solid);border:1px solid var(--line);border-radius:4px;padding:22px}
+  .card + .card{margin-top:16px}
+  h2{font-family:'Fraunces',serif;font-weight:600;font-size:24px;margin-bottom:4px}
+  .lead{color:var(--muted);font-size:15px;margin-bottom:18px}
+  .kicker{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--lime);margin-bottom:8px}
+
+  /* advisor */
+  textarea{width:100%;min-height:120px;background:var(--bg);border:1px solid var(--line);color:var(--ink);font-family:'JetBrains Mono',monospace;font-size:13px;padding:14px;border-radius:3px;resize:vertical;line-height:1.6}
+  textarea:focus{outline:none;border-color:var(--lime-dim)}
+  .chips{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0 16px}
+  .chip{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);border:1px dashed var(--line);background:transparent;padding:6px 10px;cursor:pointer;border-radius:2px;transition:.15s}
+  .chip:hover{color:var(--lime);border-color:var(--lime-dim)}
+  .run{font-family:'JetBrains Mono',monospace;font-weight:700;letter-spacing:.06em;text-transform:uppercase;font-size:13px;background:var(--lime);color:var(--bg);border:none;padding:13px 26px;cursor:pointer;border-radius:3px;transition:.15s}
+  .run:hover{filter:brightness(1.08)}
+  .run:disabled{opacity:.4;cursor:wait}
+  .result{margin-top:20px;border-left:2px solid var(--lime);padding:6px 0 6px 18px;display:none}
+  .result.show{display:block;animation:fade .4s}
+  .result .verdict{font-family:'Fraunces',serif;font-size:22px;color:var(--lime);margin-bottom:10px}
+  .result .body{font-size:15px;line-height:1.7;white-space:pre-wrap}
+  .scan{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--cyan);display:none}
+  .scan.show{display:block}
+  .scan .blink{animation:blink 1s steps(2) infinite}
+  @keyframes blink{50%{opacity:0}}
+  .err{color:var(--coral);font-family:'JetBrains Mono',monospace;font-size:12px;margin-top:10px}
+
+  /* api row */
+  .api-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}
+  @media (max-width:680px){ .api-row{grid-template-columns:1fr} }
+  .api-row label{font-family:'JetBrains Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);display:block;margin-bottom:6px}
+  .api-row input,.api-row select{width:100%;background:var(--bg);border:1px solid var(--line);color:var(--ink);font-family:'JetBrains Mono',monospace;font-size:12px;padding:10px 12px;border-radius:3px}
+  .api-row input:focus,.api-row select:focus{outline:none;border-color:var(--lime-dim)}
+
+  /* benchmark table/heat */
+  .selector{display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap}
+  .selector button{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--muted);background:var(--bg);border:1px solid var(--line);padding:8px 14px;cursor:pointer;border-radius:2px;transition:.15s}
+  .selector button.on{color:var(--bg);background:var(--cyan);border-color:var(--cyan);font-weight:700}
+  table{width:100%;border-collapse:collapse;font-family:'JetBrains Mono',monospace;font-size:12px}
+  th,td{padding:10px 12px;text-align:center;border:1px solid var(--line)}
+  th{color:var(--muted);font-weight:500;text-transform:uppercase;font-size:10px;letter-spacing:.06em}
+  td.rowlab{text-align:left;color:var(--muted)}
+  td.peak{color:var(--bg);font-weight:700}
+  .note{font-size:13px;color:var(--muted);margin-top:14px;line-height:1.6}
+  tr.hi td{outline:2px solid var(--cyan);outline-offset:-2px}
+
+  /* bars */
+  .bars{display:flex;flex-direction:column;gap:10px;margin-top:6px}
+  .bar-row{display:grid;grid-template-columns:120px 1fr 56px;align-items:center;gap:12px}
+  .bar-row .lab{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--ink)}
+  .track{background:var(--bg);border:1px solid var(--line);height:22px;border-radius:2px;overflow:hidden}
+  .fill{height:100%;width:0;transition:width 1s cubic-bezier(.2,.8,.2,1)}
+  .bar-row .val{font-family:'JetBrains Mono',monospace;font-size:12px;text-align:right}
+
+  /* pipeline */
+  .step{display:grid;grid-template-columns:40px 1fr;gap:16px;padding:16px 0;border-bottom:1px dashed var(--line);cursor:pointer}
+  .step:last-child{border-bottom:none}
+  .step .num{font-family:'Fraunces',serif;font-weight:900;font-size:26px;color:var(--lime-dim);transition:.2s}
+  .step:hover .num{color:var(--lime)}
+  .step h3{font-family:'JetBrains Mono',monospace;font-size:13px;letter-spacing:.04em;text-transform:uppercase;margin-bottom:6px}
+  .step p{font-size:14px;color:var(--muted);line-height:1.6}
+  .step .detail{max-height:0;overflow:hidden;transition:max-height .35s ease;font-size:14px;line-height:1.7}
+  .step.open .detail{max-height:300px;margin-top:8px}
+  .tag{display:inline-block;font-family:'JetBrains Mono',monospace;font-size:10px;padding:2px 7px;border:1px solid var(--lime-dim);color:var(--lime);border-radius:2px;margin-right:6px}
+
+  footer{margin-top:40px;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);text-align:center;line-height:1.8}
+  footer a{color:var(--lime-dim)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header style="flex-direction:column;align-items:stretch;gap:18px">
+    <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:18px;flex-wrap:wrap">
+      <div class="brand" style="margin:0">
+        <h1><em>scCo</em>Bench</h1>
+      </div>
+      <div class="stat-strip">
+        <div class="stat"><b>10</b><span>methods tested</span></div>
+        <div class="stat"><b>4</b><span>reporter lines</span></div>
+        <div class="stat"><b>5</b><span>imputation models</span></div>
+      </div>
+    </div>
+    <p style="font-family:'Fraunces',serif;font-size:20px;color:var(--ink);line-height:1.4;font-style:italic;margin:0">Evaluating and improving gene co-expression in single-cell RNA-seq with a biological ground truth</p>
+  </header>
+
+  <nav>
+    <button class="tab on" data-v="bench">01 · correlation matrix</button>
+    <button class="tab" data-v="top">02 · top correlates</button>
+    <button class="tab" data-v="pb">03 · pseudo-bulk</button>
+    <button class="tab" data-v="imp">04 · imputation</button>
+    <button class="tab" data-v="pipe">05 · pipeline</button>
+    <button class="tab" data-v="advisor">06 · AI advisor</button>
+    <button class="tab" data-v="cite">07 · code &amp; cite</button>
+  </nav>
+
+  <!-- ADVISOR -->
+  <section class="view" id="advisor">
+
+    <!-- Rule-based recommender (no API needed) -->
+    <div class="card">
+      <div class="kicker">Suggestion from the paper · no API key needed</div>
+      <h2>Pick the right method for your data</h2>
+      <p class="lead">Answer four short questions about your data and goal. The recommender applies the scCoBench decision tree (Figure 8) directly and tells you which method, data type, and cell subset to use, plus whether pseudo-bulk or imputation is justified. No API key, no upload, no server. Pure logic from the paper.</p>
+
+      <div class="api-row">
+        <div>
+          <label for="optGenes">my genes of interest are</label>
+          <select id="optGenes">
+            <option value="high">highly expressed (&gt; 2 UMI per cell on average)</option>
+            <option value="mid" selected>moderately expressed (0.5 to 2 UMI per cell)</option>
+            <option value="low">low / sparse (&lt; 0.5 UMI per cell, mostly zero)</option>
+            <option value="mixed">a mix across the expression range</option>
+          </select>
+        </div>
+        <div>
+          <label for="optGoal">my goal is</label>
+          <select id="optGoal">
+            <option value="pair" selected>check whether two specific genes co-express</option>
+            <option value="anchor">find genes co-expressed with a known marker</option>
+            <option value="module">discover gene modules genome-wide</option>
+            <option value="celltype">measure co-expression within one cell type</option>
+            <option value="tf">find a transcription factor's targets</option>
+          </select>
+        </div>
+        <div>
+          <label for="optResolution">I need</label>
+          <select id="optResolution">
+            <option value="sc" selected>single-cell resolution preserved</option>
+            <option value="bulk">summarised per cell type is fine</option>
+          </select>
+        </div>
+        <div>
+          <label for="optClusters">cell-type clusters available?</label>
+          <select id="optClusters">
+            <option value="yes" selected>yes (Seurat or OMG labels)</option>
+            <option value="omg">yes, OMG cell-type labels</option>
+            <option value="no">no, only the raw count matrix</option>
+          </select>
+        </div>
+      </div>
+
+      <button class="run" id="ruleGo" style="margin-top:14px">▸ Suggest a method</button>
+
+      <div class="result" id="ruleRes">
+        <div class="verdict" id="ruleVerdict"></div>
+        <div class="body" id="ruleBody"></div>
+      </div>
+    </div>
+
+    <!-- Optional LLM section -->
+    <div class="card">
+      <div class="kicker">Optional · richer free-form analysis with your own LLM</div>
+      <h2>Or describe your data in free text</h2>
+      <p class="lead">If the dropdowns above don't capture your situation, paste a longer description and we'll send it to your chosen LLM (OpenAI or Anthropic) along with the scCoBench decision rules as system context. The API is only used here if you supply your own key. Your key never leaves this browser tab and is not stored.</p>
+
+      <textarea id="q" placeholder="e.g. I have two transcription factors, both lowly expressed (under 1 UMI per cell, detected in fewer than 10% of cells). I want to know if they co-express within the endodermis cell type..."></textarea>
+
+      <div class="chips" id="chips">
+        <button class="chip">Two highly expressed genes, all cell types</button>
+        <button class="chip">Sparse genes, &gt;90% zeros, &lt;2 UMI</button>
+        <button class="chip">Co-expression inside one cell type</button>
+        <button class="chip">Find gene modules genome-wide</button>
+        <button class="chip">Need to recover dropout signal</button>
+      </div>
+
+      <div class="api-row">
+        <div>
+          <label for="provider">provider</label>
+          <select id="provider">
+            <option value="openai" selected>OpenAI (gpt-4o-mini, browser-safe CORS)</option>
+            <option value="anthropic">Anthropic Claude (CORS blocked in most browsers)</option>
+          </select>
+        </div>
+        <div>
+          <label for="model">model</label>
+          <input id="model" type="text" value="gpt-4o-mini">
+        </div>
+        <div style="grid-column:1/-1">
+          <label for="key">your API key (kept in this browser tab only)</label>
+          <input id="key" type="password" placeholder="sk-...">
+        </div>
+      </div>
+
+      <button class="run" id="go" style="margin-top:14px">▸ Ask the LLM</button>
+
+      <div class="scan" id="scan">› reasoning over decision tree<span class="blink">_</span></div>
+      <div class="result" id="res">
+        <div class="verdict" id="verdict"></div>
+        <div class="body" id="body"></div>
+      </div>
+      <div class="err" id="err"></div>
+    </div>
+  </section>
+
+  <!-- BENCHMARK -->
+  <section class="view on" id="bench">
+
+    <div class="card">
+      <div class="kicker">Figure 2B · seven correlation methods × four reporter lines</div>
+      <h2>Each method's view of the same gene pair</h2>
+      <p class="lead">Different correlation methods make different assumptions and produce different numbers for the same reporter-native pair. Some saturate when expression is high, some are designed for sparse counts, others are rank-based. Toggle between the correlation value (r) and the rank of the native gene among all candidates. Lime indicates higher numerical values; the cell highlight is a visual cue only.</p>
+
+      <div class="selector" id="metricSel">
+        <button class="on" data-m="r">correlation value</button>
+        <button data-m="rank">rank of native gene</button>
+      </div>
+
+      <table id="methodTbl">
+        <thead><tr><th>method</th><th>WER</th><th>CORTEX</th><th>PET111</th><th>SCR</th><th>notes</th></tr></thead>
+        <tbody id="methodBody"></tbody>
+      </table>
+      <p class="note" id="methodNote">[exact] values are stated in the manuscript text; [approx] values are read from Figure 2B and refined later from source data.</p>
+    </div>
+
+    <div class="card">
+      <div class="kicker">Read the matrix · key takeaways</div>
+      <h2>What the seven methods actually tell us</h2>
+
+      <div class="step open" style="cursor:default">
+        <div class="num">→</div>
+        <div>
+          <h3>correlation is driven by gene expression level</h3>
+          <div class="detail" style="max-height:none"><p>Across every method tested, the same pattern repeats: highly expressed genes give clean, high correlations, while sparsely expressed genes give noisy, low correlations. If your gene of interest is detected in only a small fraction of cells, expect any correlation method to be unreliable until you boost the effective expression with pseudo-bulk or imputation.</p></div>
+        </div>
+      </div>
+
+      <div class="step open" style="cursor:default">
+        <div class="num">→</div>
+        <div>
+          <h3>the pattern generalises across plant species</h3>
+          <div class="detail" style="max-height:none"><p>The expression-driven reliability holds the same way in Arabidopsis, tomato, rice, soybean, maize, sorghum and Setaria. Whether you work in a model plant or a crop with limited annotation, the same rules of thumb apply. The decision tree in tab 05 is dataset-agnostic.</p></div>
+        </div>
+      </div>
+
+      <div class="step open" style="cursor:default">
+        <div class="num">→</div>
+        <div>
+          <h3>a high correlation value does not always mean the right answer</h3>
+          <div class="detail" style="max-height:none"><p>Some methods (CS-CORE, scCOSMIX) push correlation values close to 1 yet still fail to identify the true partner gene as the top correlate. Always check the rank of the gene of interest, not just the r value.</p></div>
+        </div>
+      </div>
+
+      <div class="step open" style="cursor:default">
+        <div class="num">→</div>
+        <div>
+          <h3>match the method to the data, not the other way around</h3>
+          <div class="detail" style="max-height:none"><p>Pearson on raw counts is a fast, reliable default for moderately or highly expressed genes. For very sparse pairs, switching from Pearson to Spearman or Kendall recovers the native gene from rank 163 to rank 5 (SCR sample). CS-CORE is for within-cell-type analyses; hdWGCNA is for gene modules. Pick the tool that fits your data regime and your goal.</p></div>
+        </div>
+      </div>
+
+      <div class="step open" style="cursor:default">
+        <div class="num">→</div>
+        <div>
+          <h3>fix the data before changing the method</h3>
+          <div class="detail" style="max-height:none"><p>If the same gene pair gives weak correlation across every method, the data is the bottleneck, not the method. Aggregate cells by cell type (pseudo-bulk, tab 03) or impute dropouts with a VAE (tab 04) before correlating again. These steps recover signal that no correlation method can pull out of unimproved raw counts.</p></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="kicker">Figure 2E · Pearson grid: subset × data type</div>
+      <h2>Why normalization can hurt Pearson</h2>
+      <p class="lead">Within Pearson, the same gene pair can give wildly different correlations depending on subset and data type. High-expression lines peak on RAW counts across ALL cells; sparse SCR peaks only after normalization on the both-expressing subset.</p>
+
+      <div class="selector" id="sampleSel">
+        <button class="on" data-s="WER">WER · 17.5% cells</button>
+        <button data-s="CORTEX">CORTEX · 4.8%</button>
+        <button data-s="PET111">PET111 · 1.9%</button>
+        <button data-s="SCR">SCR · 2.3%</button>
+      </div>
+
+      <table id="grid">
+        <thead><tr><th>subset \ type</th><th>raw counts</th><th>normalized</th><th>scaled</th></tr></thead>
+        <tbody id="gridBody"></tbody>
+      </table>
+      <p class="note" id="gridNote"></p>
+    </div>
+
+    <div class="card">
+      <div class="kicker">Figures 5 and 6 · methods that don't return a single number</div>
+      <h2>Mutual information · distance · hdWGCNA</h2>
+      <table>
+        <thead><tr><th>method</th><th>what it returns</th><th>does reporter ↔ native pair show up?</th></tr></thead>
+        <tbody>
+          <tr><td class="rowlab">Mutual information</td><td>non-linear dependency score</td><td style="color:var(--lime)">YES. Confirms strong reporter to native dependency in every sample (Supp Fig 6A).</td></tr>
+          <tr><td class="rowlab">Euclidean / Manhattan / Chebyshev distance</td><td>dissimilarity between genes</td><td style="color:var(--coral)">INCONSISTENT. Distance metrics did not consistently identify the reporter as most similar (Supp Fig 6B).</td></tr>
+          <tr><td class="rowlab">hdWGCNA</td><td>module assignment + TOM</td><td style="color:var(--amber)">PARTIAL. Reporter and native gene placed in the same module in all four samples, but their TOM values are low; reporter does not rank among top co-expressed partners by TOM (Supp Fig 5A, B, C, D, E).</td></tr>
+        </tbody>
+      </table>
+      <p class="note">For module discovery, hdWGCNA is the right tool (same-module placement is correct), but TOM should not be used as a stand-alone co-expression score.</p>
+    </div>
+
+    <div class="card">
+      <div class="kicker">Figure 2D · sampling depth</div>
+      <h2>Detection sparsity per line</h2>
+      <div class="bars" id="depthBars"></div>
+      <p class="note">SCR carried only 526 reporter reads out of 660M reads in its sample, which is why every metric struggles with it until imputation steps in.</p>
+    </div>
+
+    <div class="card">
+      <div class="kicker">How we extended the ground truth to every gene</div>
+      <h2>Two halves of the same gene, a gold-standard simulation</h2>
+      <p class="lead">The four promoter-reporter lines give us an engineered ground truth: the reporter and the native gene are driven by the same promoter, so they should correlate strongly. To extend this idea to <strong>every gene in the dataset</strong>, we simulate "two halves of the same gene" by count splitting (Neufeld et al., 2024). Each UMI count is randomly split in two, giving two count vectors that came from the same gene. They are, by construction, the same gene measured twice. We then ask whether each correlation method recovers the expected near-perfect correlation between the two halves.</p>
+      <p class="lead" style="margin-top:6px"><strong style="color:var(--lime)">Expected outcome:</strong> the two halves of a gene should correlate at r ≈ 1 with each other and rank as each other's top match, since they are literally the same gene. <strong style="color:var(--coral)">What actually happens:</strong> when a gene is expressed at very low levels, each half is dominated by sampling noise, so even two halves of the same gene fail to correlate well. The correlation is not broken; gene expression is just too sparse to support it.</p>
+    </div>
+
+    <div class="card">
+      <div class="kicker">Across seven plant species</div>
+      <h2>Correlation reliability rises with gene expression</h2>
+      <p class="lead">The same pattern holds in every species we tested: the more strongly a gene is expressed, the more reliable its correlation. Pick the method (Pearson or Spearman) and the metric (rank or correlation value). Rows are species, columns are mean UMI per cell. Click a row to highlight it.</p>
+
+      <div style="display:flex;gap:18px;flex-wrap:wrap;margin-bottom:12px">
+        <div>
+          <label style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;display:block;margin-bottom:6px">method</label>
+          <div class="selector" id="recoverySel" style="margin-bottom:0">
+            <button class="on" data-m="P">Pearson</button>
+            <button data-m="S">Spearman</button>
+          </div>
+        </div>
+        <div>
+          <label style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;display:block;margin-bottom:6px">metric</label>
+          <div class="selector" id="recoveryMetricSel" style="margin-bottom:0">
+            <button class="on" data-v="pct">% rank 1</button>
+            <button data-v="r">median r</button>
+          </div>
+        </div>
+      </div>
+
+      <table id="recoveryTbl">
+        <thead>
+          <tr>
+            <th>sample</th>
+            <th>&lt; 0.05</th><th>0.05 to 0.5</th><th>0.5 to 1</th><th>1 to 2</th><th>2 to 5</th><th>≥ 5</th>
+          </tr>
+        </thead>
+        <tbody id="recoveryBody"></tbody>
+      </table>
+      <p class="note" id="recoveryNote">% rank 1: percentage of genes where the two halves correctly identify each other as the top match. Lime = high, coral = low. Soybean's ≥ 5 bin contains only three genes so the percentage is unstable for that one cell.</p>
+    </div>
+  </section>
+
+  <!-- PSEUDO-BULK -->
+  <section class="view" id="pb">
+
+    <div class="card">
+      <div class="kicker">Figure 3E · before vs after pseudo-bulk</div>
+      <h2>Aggregating cells by cluster lifts the sparse pair</h2>
+      <p class="lead">Reporter-to-native Pearson correlation in single-cell space versus after pseudo-bulk aggregation by cell-type cluster. SCR is the dominant beneficiary: its Pearson r climbs from 0.30 (raw single-cell) to 0.94 with cell-type pseudo-bulk. The other three lines already had strong signal at single-cell resolution and gain little.</p>
+      <div class="selector" id="pbMethodSel">
+        <button class="on" data-m="P">Pearson</button>
+        <button data-m="S">Spearman</button>
+      </div>
+      <div class="bars" id="pbBars"></div>
+    </div>
+
+    <div class="card">
+      <div class="kicker">Figure 3E vs 3F · clustering choice matters</div>
+      <h2>Default Seurat clusters vs OMG cell-type clusters</h2>
+      <p class="lead">Pseudo-bulk performance depends on how cells are grouped. The Seurat default (unsupervised Louvain at resolution 0.5) and OMG (ortholog-marker-group cell-type labels) give different pseudo-bulk correlations. OMG generally produces cleaner co-expression because the aggregation respects biological cell identity rather than transcriptomic similarity.</p>
+      <table id="pbClusterTbl">
+        <thead><tr><th>method · clustering</th><th>WER</th><th>CORTEX</th><th>PET111</th><th>SCR</th></tr></thead>
+        <tbody id="pbClusterBody"></tbody>
+      </table>
+      <p class="note">★ marks the highest correlation per sample. For three of four lines, OMG cell-type clustering matches or beats Seurat default. The difference is largest for SCR, the sparsest pair, where biologically informed clustering recovers an additional ~0.2 in Spearman r.</p>
+    </div>
+
+    <div class="card">
+      <div class="kicker">When to use pseudo-bulk · paper recommendation</div>
+      <h2>Use pseudo-bulk ONLY when</h2>
+      <p style="font-size:15px;line-height:1.7;color:var(--ink);">
+        Aggregating by cell type is justified <strong style="color:var(--lime)">only</strong> when your gene of interest is undetected in over <strong>90% of cells</strong>
+        <em>and</em> carries fewer than <strong>2 UMI per positive cell</strong>. Otherwise the single-cell correlations are already informative and pseudo-bulk only sacrifices resolution.
+      </p>
+      <p class="note">Pseudo-bulk turns a single-cell measurement into a bulk-resolution one. If you need to keep single-cell resolution but still rescue a sparse pair, see the imputation tab instead.</p>
+    </div>
+
+  </section>
+
+  <!-- IMPUTATION -->
+  <section class="view" id="imp">
+    <div class="card">
+      <div class="kicker">Figure 4D · the headline result</div>
+      <h2>VAE rescues the sparse case</h2>
+      <p class="lead">The sparsest line, SCR, had a Pearson correlation of just 0.30 in raw data. After VAE imputation it climbs to 0.96, without inflating raw expression levels. AE and VAE gave the most consistent gains across all four lines.</p>
+      <div class="bars" id="impBars"></div>
+    </div>
+
+    <div class="card">
+      <div class="kicker">Figure 4E · runtime in minutes</div>
+      <h2>Deep learning is also faster</h2>
+      <p class="lead">Training AE / VAE / GAN from scratch ran far quicker than the statistical methods scImpute and SAVER. Pick a sample to compare runtime.</p>
+      <div class="selector" id="rtSel">
+        <button class="on" data-s="WER">WER</button>
+        <button data-s="CORTEX">CORTEX</button>
+        <button data-s="PET111">PET111</button>
+        <button data-s="SCR">SCR</button>
+      </div>
+      <div class="bars" id="rtBars"></div>
+    </div>
+  </section>
+
+  <!-- PIPELINE -->
+  <section class="view" id="pipe">
+    <div class="card">
+      <div class="kicker">Figure 8 · decision tree</div>
+      <h2>Pick a method by data shape and goal</h2>
+      <p class="lead">Tap each step to expand. This is the same logic the AI advisor reasons over.</p>
+      <div id="steps"></div>
+    </div>
+  </section>
+
+  <!-- TOP CORRELATES -->
+  <section class="view" id="top">
+    <div class="card">
+      <div class="kicker">Full-genome top-50 correlated partner lookup</div>
+      <h2>Find the most correlated genes for your gene of interest</h2>
+      <p class="lead">For every expressed gene in each Arabidopsis sample (about 22,000 per sample), we pre-computed the 50 most strongly correlated partner genes across all cells, using Pearson and Spearman correlation. Paste one or more gene IDs and the page returns a sorted list of top partners per gene with their r values. Anchored on the full count matrix, not just the 2,000 HVGs.</p>
+
+      <div style="display:flex;gap:18px;flex-wrap:wrap;margin-bottom:12px">
+        <div>
+          <label style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;display:block;margin-bottom:6px">sample</label>
+          <div class="selector" id="topSampleSel" style="margin-bottom:0">
+            <button class="on" data-s="WER">WER</button>
+            <button data-s="CORTEX">CORTEX</button>
+            <button data-s="PET111">PET111</button>
+            <button data-s="SCR">SCR</button>
+          </div>
+        </div>
+        <div>
+          <label style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;display:block;margin-bottom:6px">method</label>
+          <div class="selector" id="topMethodSel" style="margin-bottom:0">
+            <button class="on" data-m="P">Pearson</button>
+            <button data-m="S">Spearman</button>
+          </div>
+        </div>
+        <div>
+          <label style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;display:block;margin-bottom:6px">how many partners</label>
+          <div class="selector" id="topNSel" style="margin-bottom:0">
+            <button data-n="10">top 10</button>
+            <button data-n="20">top 20</button>
+            <button class="on" data-n="50">top 50</button>
+          </div>
+        </div>
+      </div>
+
+      <textarea id="topGenes" placeholder="paste one or more gene IDs, one per line or comma separated. Examples:&#10;gene:AT5G14750&#10;GFP&#10;gene:AT1G70370">gene:AT5G14750
+GFP
+gene:AT1G09750
+gene:AT2G28870</textarea>
+
+      <div style="display:flex;gap:10px;align-items:center;margin-top:12px">
+        <button class="run" id="topGo">▸ Find top partners</button>
+        <span class="thinking" id="topThinking" style="color:var(--cyan)">› loading lookup<span class="blink">_</span></span>
+      </div>
+
+      <div id="topResult" style="margin-top:24px;display:none"></div>
+    </div>
+  </section>
+
+  <!-- CITE & CODE -->
+  <section class="view" id="cite">
+
+    <div class="card">
+      <div class="kicker">Code repository</div>
+      <h2>Source code on GitHub</h2>
+      <p class="lead">All analysis scripts, data-processing pipelines, and figures from the paper are open and version-controlled.</p>
+      <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:8px">
+        <a href="https://github.com/ct-tranchau/scCoBench" target="_blank"
+           class="run" style="text-decoration:none;display:inline-flex;align-items:center;gap:8px">
+          ★ github.com/ct-tranchau/scCoBench
+        </a>
+        <a href="https://github.com/ct-tranchau/scCoBench/issues" target="_blank"
+           style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--cyan);align-self:center;text-transform:uppercase;letter-spacing:.06em">
+          report an issue ›
+        </a>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="kicker">Data</div>
+      <h2>Datasets and accession numbers</h2>
+      <table>
+        <thead><tr><th style="text-align:left">dataset</th><th style="text-align:left">accession</th><th style="text-align:left">link</th></tr></thead>
+        <tbody>
+          <tr><td class="rowlab" style="text-align:left">Arabidopsis reporter lines (this study)</td><td>GSE295703</td>
+              <td><a href="https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE295703" target="_blank" style="color:var(--cyan)">GEO</a></td></tr>
+          <tr><td class="rowlab" style="text-align:left">Soybean root atlas</td><td>GSE270392</td>
+              <td><a href="https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE270392" target="_blank" style="color:var(--cyan)">GEO</a></td></tr>
+          <tr><td class="rowlab" style="text-align:left">Rice Nipponbare &amp; 9311</td><td>GSE146035</td>
+              <td><a href="https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE146035" target="_blank" style="color:var(--cyan)">GEO</a></td></tr>
+          <tr><td class="rowlab" style="text-align:left">Maize, Setaria, Sorghum</td><td>GSE225118</td>
+              <td><a href="https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE225118" target="_blank" style="color:var(--cyan)">GEO</a></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <div class="kicker">How to cite this work</div>
+      <h2>Citation</h2>
+      <p class="lead">Plain text:</p>
+<pre style="background:var(--bg);border:1px solid var(--line);color:var(--ink);padding:14px;border-radius:3px;overflow-x:auto;font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.6;white-space:pre-wrap"
+>Chau, T. N., Ryu, K. H., Alajoleen, R., Bargmann, B. O. R., Schiefelbein, J., &amp; Li, S. (2025).
+scCoBench: Evaluating and improving gene co-expression in single-cell RNA-seq with a biological ground truth.
+(In preparation)</pre>
+
+      <p class="lead" style="margin-top:18px">BibTeX:</p>
+<pre style="background:var(--bg);border:1px solid var(--line);color:var(--ink);padding:14px;border-radius:3px;overflow-x:auto;font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.55;white-space:pre"
+>@article{chau2025sccobench,
+  title   = {scCoBench: Evaluating and improving gene co-expression
+             in single-cell RNA-seq with a biological ground truth},
+  author  = {Chau, Tran N. and Ryu, Kook Hui and Alajoleen, Razan and
+             Bargmann, Bastiaan O. R. and Schiefelbein, John and Li, Song},
+  journal = {(In preparation)},
+  year    = {2025}
+}</pre>
+    </div>
+
+    <div class="card">
+      <div class="kicker">Authors &amp; contact</div>
+      <h2>Get in touch</h2>
+      <p class="lead">scCoBench is developed and maintained at Virginia Tech in collaboration with the University of Michigan.</p>
+      <p style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--ink);line-height:1.8">
+        Tran N. Chau &middot; Kook Hui Ryu &middot; Razan Alajoleen &middot;
+        Bastiaan O. R. Bargmann &middot; John Schiefelbein &middot; Song Li
+      </p>
+      <p style="margin-top:14px">Corresponding author: Song Li
+        &nbsp;&middot;&nbsp;
+        <a href="mailto:songli@vt.edu" style="color:var(--cyan)">songli@vt.edu</a>
+      </p>
+    </div>
+  </section>
+
+  <footer>
+    scCoBench &middot; Chau et al.
+  </footer>
+
+</div>
+
+<script>
+// ---------- data from the paper ----------
+
+// Method × sample correlation values + ranks (Figure 2B)
+// Values where the manuscript text gives an exact number are marked [exact].
+// Values estimated visually from Figure 2B's bar chart are marked [approx].
+// Replace approximations with exact numbers once read off the figure.
+const METHODS = [
+  { name: "CS-CORE",       r: [1.00, 0.93, 0.84, 0.52], rank: [1,    44,   61, 147],
+    note: "Designed for within-cell-type; saturates at IRLS ceiling for WER. High r values but rank drops to #44, #61, #147 when expression is region-specific." },
+  { name: "scCOSMIX",      r: [0.87, 0.93, 0.88, 0.68], rank: [12,   61,  250,  67],
+    note: "Highest r for sparse pairs (CORTEX, PET111, SCR), but ranks native gene below top in all four samples; slowest method (mean 71 s/pair)." },
+  { name: "Pearson",       r: [0.91, 0.81, 0.82, 0.30], rank: [1,     1,    1, 163],
+    note: "Best fast default. Ranks native gene first in 3 of 4 samples. Fails on sparse SCR where the native gene drops to rank #163." },
+  { name: "Bicor",         r: [0.91, 0.81, 0.82, 0.30], rank: [1,     1,    1, 162],
+    note: "Behaves nearly identically to Pearson on these data." },
+  { name: "p-sctransform", r: [0.64, 0.65, 0.67, 0.17], rank: [1,     1,    1,  31],
+    note: "SCTransform-normalized residuals, then Pearson. Rank-1 on all four reporter pairs; SCR rank lifts to #31." },
+  { name: "Spearman",      r: [0.63, 0.65, 0.43, 0.38], rank: [1,     1,    1,   5],
+    note: "Rank-based; outperforms Pearson dramatically on the sparsest pair (SCR rank 163 → 5)." },
+  { name: "Kendall",       r: [0.60, 0.64, 0.43, 0.37], rank: [1,     1,    1,   5],
+    note: "Most robust to dropout for very sparse genes; ties Spearman for best recovery of SCR." },
+];
+
+const SUBSETS = ['all cells','express either','express both'];
+const TABLE = {
+  WER:    [[0.91,0.50,0.50],[0.89,0.13,0.13],[0.67,0.77,0.77]],
+  CORTEX: [[0.81,0.40,0.44],[0.73,-0.04,-0.01],[0.66,0.78,0.78]],
+  PET111: [[0.82,0.55,0.55],[0.80,0.12,0.06],[0.80,0.47,0.45]],
+  SCR:    [[0.30,0.15,0.17],[0.13,-0.31,-0.32],[0.18,0.67,0.64]]
+};
+const GRID_NOTE = {
+  WER:"Peak at raw counts / all cells (0.91). For this well-expressed line, raw Pearson is best and normalization lowers the signal.",
+  CORTEX:"Peak at normalized / both-expressing (0.78), but raw counts / all cells (0.81) is comparable and far simpler.",
+  PET111:"Peak at raw counts / all cells (0.82). Normalization roughly halves the signal here.",
+  SCR:"Peak at normalized / both-expressing (0.67), not raw counts (0.30). The lone sparse line where normalization actually helps."
+};
+
+const DEPTH = [
+  {s:'WER', pct:17.52, cells:1719, reads:9118},
+  {s:'CORTEX', pct:4.8, cells:563, reads:2906},
+  {s:'PET111', pct:1.89, cells:184, reads:4066},
+  {s:'SCR', pct:2.32, cells:244, reads:526}
+];
+
+const IMP = [
+  {s:'WER', orig:0.91, vae:0.95},
+  {s:'CORTEX', orig:0.81, vae:0.93},
+  {s:'PET111', orig:0.82, vae:0.95},
+  {s:'SCR', orig:0.30, vae:0.96}
+];
+
+const RUNTIME = {
+  WER:[214,460,9,8,12], CORTEX:[372,351,10,10,14], PET111:[298,259,10,9,13], SCR:[342,235,10,9,13]
+};
+const RT_LABELS=['scImpute','SAVER','AE','VAE','GAN'];
+
+// Pseudo-bulk: single-cell vs pseudo-bulk Pearson/Spearman correlation (Fig 3E-F)
+// Values are reporter-native correlation at single-cell vs after pseudo-bulk (cell-type clustering).
+const PB_BARS = {
+  P: [
+    { s:'WER',    sc:0.91, pb:0.99 },
+    { s:'CORTEX', sc:0.81, pb:0.97 },
+    { s:'PET111', sc:0.82, pb:0.99 },
+    { s:'SCR',    sc:0.30, pb:0.94 },
+  ],
+  S: [
+    { s:'WER',    sc:0.50, pb:0.97 },
+    { s:'CORTEX', sc:0.40, pb:0.43 },
+    { s:'PET111', sc:0.55, pb:0.78 },
+    { s:'SCR',    sc:0.17, pb:0.67 },
+  ],
+};
+
+// Pseudo-bulk: default Seurat clusters vs OMG cell-type clusters
+// rows: method × clustering, columns: WER, CORTEX, PET111, SCR
+const PB_CLUSTER = [
+  { label:'Pearson · Seurat default',  vals:[0.99, 0.97, 0.99, 0.43] },
+  { label:'Pearson · OMG cell-type',   vals:[0.99, 0.97, 0.99, 0.94] },
+  { label:'Spearman · Seurat default', vals:[0.97, 0.30, 0.78, 0.06] },
+  { label:'Spearman · OMG cell-type',  vals:[0.97, 0.43, 0.78, 0.67] },
+];
+
+// Cross-species recovery: per (sample, bin) we show two numbers:
+//   pct = % of genes whose two halves correctly identify each other as top match
+//   r   = median cross-half Pearson/Spearman correlation across genes in that bin
+const RECOVERY = {
+  P: [
+    { s: "Arabidopsis WER",    pct: [15.4, 24.1, 35.1, 50.9, 73.7, 97.1], r:[0.15, 0.48, 0.74, 0.86, 0.93, 0.98] },
+    { s: "Arabidopsis CORTEX", pct: [15.6, 23.3, 34.1, 48.7, 68.3, 96.3], r:[0.15, 0.46, 0.71, 0.83, 0.92, 0.98] },
+    { s: "Arabidopsis PET111", pct: [13.8, 21.7, 36.5, 55.1, 83.7, 98.6], r:[0.21, 0.55, 0.81, 0.90, 0.95, 0.99] },
+    { s: "Arabidopsis SCR",    pct: [14.5, 23.1, 40.6, 59.0, 80.8, 96.9], r:[0.15, 0.47, 0.75, 0.87, 0.93, 0.98] },
+    { s: "Soybean",            pct: [12.3, 23.3, 81.0,100.0,100.0,100.0], r:[0.09, 0.16, 0.57, 0.72, 0.80, 0.96] },
+    { s: "Tomato",             pct: [14.1, 17.8, 24.0, 31.0, 43.4, 77.8], r:[0.06, 0.23, 0.48, 0.64, 0.80, 0.95] },
+    { s: "Rice NIP",           pct: [11.4, 23.9, 45.3, 62.4, 78.8, 92.8], r:[0.06, 0.15, 0.38, 0.50, 0.66, 0.84] },
+    { s: "Rice 9311",          pct: [ 9.6, 24.0, 40.6, 62.6, 80.5, 95.3], r:[0.05, 0.12, 0.29, 0.43, 0.58, 0.81] },
+    { s: "Setaria",            pct: [19.4, 27.2, 36.0, 49.7, 70.2, 92.4], r:[0.10, 0.40, 0.67, 0.81, 0.90, 0.97] },
+    { s: "Maize",              pct: [ 7.4, 11.3, 22.2, 34.6, 41.3, 77.0], r:[0.04, 0.13, 0.38, 0.58, 0.76, 0.92] },
+    { s: "Sorghum",            pct: [ 7.2, 11.1, 31.3, 48.3, 56.3, 74.7], r:[0.03, 0.15, 0.53, 0.71, 0.84, 0.93] },
+  ],
+  S: [
+    { s: "Arabidopsis WER",    pct: [19.1, 25.2, 34.2, 43.9, 50.0, 45.7], r:[0.13, 0.35, 0.51, 0.56, 0.60, 0.67] },
+    { s: "Arabidopsis CORTEX", pct: [19.7, 22.6, 28.7, 36.6, 40.2, 41.8], r:[0.13, 0.33, 0.50, 0.59, 0.66, 0.75] },
+    { s: "Arabidopsis PET111", pct: [17.5, 20.7, 30.2, 37.3, 41.7, 33.4], r:[0.18, 0.39, 0.54, 0.59, 0.63, 0.63] },
+    { s: "Arabidopsis SCR",    pct: [18.3, 25.9, 36.0, 39.8, 44.8, 49.2], r:[0.13, 0.31, 0.43, 0.48, 0.53, 0.62] },
+    { s: "Soybean",            pct: [22.9, 33.8, 77.5, 98.8,100.0,100.0], r:[0.08, 0.12, 0.33, 0.42, 0.51, 0.73] },
+    { s: "Tomato",             pct: [17.3, 17.8, 19.1, 21.3, 26.2, 34.3], r:[0.05, 0.19, 0.37, 0.49, 0.61, 0.76] },
+    { s: "Rice NIP",           pct: [14.9, 25.0, 38.1, 53.1, 70.0, 91.4], r:[0.06, 0.12, 0.26, 0.35, 0.50, 0.73] },
+    { s: "Rice 9311",          pct: [12.3, 24.3, 35.0, 49.5, 71.0, 91.9], r:[0.04, 0.10, 0.21, 0.32, 0.47, 0.72] },
+    { s: "Setaria",            pct: [24.2, 26.5, 28.3, 33.7, 40.5, 38.9], r:[0.09, 0.30, 0.44, 0.50, 0.56, 0.62] },
+    { s: "Maize",              pct: [10.0,  9.4, 12.7, 16.8, 23.2, 37.9], r:[0.04, 0.11, 0.28, 0.44, 0.62, 0.80] },
+    { s: "Sorghum",            pct: [ 8.5,  8.0, 14.0, 18.2, 22.6, 30.0], r:[0.03, 0.12, 0.38, 0.50, 0.61, 0.71] },
+  ],
+};
+
+const STEPS = [
+  {n:'0',t:'Start: raw count matrix',d:'Begin with raw read counts in a single-cell gene-by-cell matrix. Do not normalize yet.'},
+  {n:'1',t:'Measure gene-gene relationship',d:'<span class="tag">Pearson</span> high-expression genes, raw counts, all cells: fast baseline.<br><span class="tag">Pearson norm/scaled</span> or <span class="tag">scCOSMIX</span> for low-expression genes on cells expressing both.<br><span class="tag">CS-CORE</span> when working within one cell type.<br><span class="tag">hdWGCNA</span> when the goal is gene modules.'},
+  {n:'2',t:'Visualize the pattern',d:'Use FeaturePlot to eyeball whether the two genes share a spatial expression pattern before trusting any number.'},
+  {n:'3',t:'Validate experimentally',d:'Confirm predicted co-expression with PCR / qRT-PCR in sorted cell populations.'},
+  {n:'4',t:'Pseudo-bulk (only if needed)',d:'Aggregate by cell type to cut dropout noise. Recommended ONLY when genes are undetected in over 90% of cells AND carry under 2 UMI elsewhere. Otherwise skip it.'},
+  {n:'5',t:'Imputation (single-cell resolution)',d:'Recover dropout while keeping single-cell resolution. Start with a VAE: best performance-to-runtime balance in this study.'},
+  {n:'6',t:'Re-check biology',d:'Recompute biologically grounded correlations (TF-target, protein-complex) before vs after imputation to confirm you recovered signal, not noise.'}
+];
+
+// ---------- tab switching ----------
+document.querySelectorAll('.tab').forEach(t=>{
+  t.onclick=()=>{
+    document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));
+    document.querySelectorAll('.view').forEach(x=>x.classList.remove('on'));
+    t.classList.add('on');
+    document.getElementById(t.dataset.v).classList.add('on');
+  };
+});
+
+// ---------- provider/model defaults sync ----------
+document.getElementById('provider').addEventListener('change', e => {
+  document.getElementById('model').value = e.target.value === 'anthropic'
+    ? 'claude-sonnet-4-5'
+    : 'gpt-4o-mini';
+});
+
+// ---------- rule-based recommender (no API) ----------
+function ruleSuggest() {
+  const expr   = document.getElementById('optGenes').value;
+  const goal   = document.getElementById('optGoal').value;
+  const res    = document.getElementById('optResolution').value;
+  const clus   = document.getElementById('optClusters').value;
+
+  // Decide method and data prep based on the decision tree
+  let method, dataPrep, subset, processing, why = [];
+
+  // 1) Method
+  if (goal === 'celltype') {
+    method = 'CS-CORE';
+    why.push('CS-CORE estimates correlation within a single cell-type cluster, the case it was designed for.');
+  } else if (goal === 'module') {
+    method = 'hdWGCNA';
+    why.push('For module discovery, hdWGCNA assigns genes to co-expression modules and groups the reporter and native gene correctly in the same module across all four reporter samples.');
+  } else if (expr === 'high') {
+    method = 'Pearson';
+    dataPrep = 'raw counts'; subset = 'all cells';
+    why.push('For highly expressed genes, Pearson on raw counts is the fastest reliable choice. In the benchmark it ranked the native gene first in 3 of 4 samples.');
+  } else if (expr === 'low') {
+    method = 'Pearson (rank-based: Spearman or Kendall preferred for very sparse) or scCOSMIX';
+    dataPrep = 'log-normalised or scaled'; subset = 'cells expressing both genes';
+    why.push('For sparse genes, Pearson on raw counts is dominated by zeros. Use normalised data restricted to cells where both genes are detected, or scCOSMIX (more compute, designed for sparse counts).');
+    why.push('Rank-based methods (Spearman, Kendall) recover the sparse pair better than Pearson; in the benchmark they lifted the SCR rank from #47 to top-10.');
+  } else if (expr === 'mid') {
+    method = 'Pearson';
+    dataPrep = 'raw counts'; subset = 'all cells';
+    why.push('Pearson on raw counts is the default for moderate expression. Switch to normalised data on the both-expressing subset if you see signal weakness.');
+  } else {
+    // mixed
+    method = 'Pearson on raw counts as a first pass';
+    dataPrep = 'raw counts'; subset = 'all cells';
+    why.push('Mixed expression: start with Pearson on raw counts. Inspect each pair individually; for the sparse ones, redo with log-normalised data and the both-expressing subset.');
+  }
+
+  // 2) Pseudo-bulk justification
+  let pseudoBulk = null;
+  if (expr === 'low') {
+    if (res === 'bulk') {
+      pseudoBulk = 'Recommended. Pseudo-bulk by cell-type cluster will substantially raise the correlation. In the benchmark, SCR (sparsest pair) climbed from r = 0.30 to 0.94 after pseudo-bulk with OMG cell-type clusters.';
+    } else {
+      pseudoBulk = 'Skip pseudo-bulk to keep single-cell resolution. Use imputation instead (see below).';
+    }
+  } else {
+    pseudoBulk = 'Not needed. Pseudo-bulk is only justified when genes are undetected in over 90% of cells and carry fewer than 2 UMI per positive cell. Otherwise it sacrifices resolution for no gain.';
+  }
+
+  // 3) Imputation
+  let impute = null;
+  if (expr === 'low' && res === 'sc') {
+    impute = 'Recommended. Train a VAE (best speed-to-quality balance in the benchmark; AE is a close second). The SCR reporter correlation climbed from 0.30 to 0.96 after VAE imputation without inflating raw expression. Re-check biology (TF-target / protein complex) before vs after.';
+  } else if (expr === 'mid' && res === 'sc') {
+    impute = 'Optional. Try only if raw and normalised Pearson both look weak.';
+  } else {
+    impute = 'Not needed.';
+  }
+
+  // 4) Cluster note
+  let clusterNote = null;
+  if (goal === 'celltype' || (expr === 'low' && res === 'bulk')) {
+    if (clus === 'no') {
+      clusterNote = 'You will need cell-type labels first. Run Seurat clustering or, better, the OMG cell-type assignment for biologically informed groups.';
+    } else if (clus === 'yes') {
+      clusterNote = 'Use OMG-style cell-type labels if available. In the benchmark, OMG clustering beat Seurat default for SCR Spearman by ~0.2.';
+    } else {
+      clusterNote = 'OMG cell-type labels are the right choice. The benchmark shows the largest gains from biologically informed clustering.';
+    }
+  }
+
+  // 5) Validation
+  const validation = 'Validate the predicted co-expression with a FeaturePlot first to eyeball the spatial pattern, then by qRT-PCR in FACS-sorted populations if the pair is novel.';
+
+  // Build output
+  const verdict = '▸ ' + method;
+  let body = why.join('\n\n');
+  body += '\n\n• Data type: ' + (dataPrep || 'method-specific (see method docs)');
+  body += '\n• Cell subset: ' + (subset || 'method-specific');
+  body += '\n• Pseudo-bulk: ' + pseudoBulk;
+  body += '\n• Imputation: ' + impute;
+  if (clusterNote) body += '\n• Clustering: ' + clusterNote;
+  body += '\n\nValidation: ' + validation;
+
+  document.getElementById('ruleVerdict').textContent = verdict;
+  document.getElementById('ruleBody').textContent = body;
+  document.getElementById('ruleRes').classList.add('show');
+}
+document.getElementById('ruleGo').onclick = ruleSuggest;
+
+// ---------- LLM advisor (uses the user's own API) ----------
+const chips=document.getElementById('chips');
+chips.querySelectorAll('.chip').forEach(c=>{
+  c.onclick=()=>{ document.getElementById('q').value=c.textContent; };
+});
+
+const SYS = `You are the scCoBench co-expression method advisor. You ONLY recommend methods using this decision tree from the paper (Figure 8):
+- HIGHLY expressed genes: Pearson correlation on RAW counts across ALL cells. Fast baseline. Normalization usually LOWERS correlation for these.
+- LOWLY expressed / sparse genes: Pearson on NORMALIZED or SCALED data using ONLY cells expressing BOTH genes; or scCOSMIX (more compute-intensive) for very sparse data.
+- Correlation WITHIN a specific cell type: CS-CORE.
+- Goal is gene MODULES: hdWGCNA.
+- Rank-based (Spearman/Kendall) are more robust than Pearson for very sparse genes.
+- If the user needs to IMPROVE weak correlation:
+   * Bulk resolution acceptable -> pseudo-bulk (aggregate by cell type). ONLY justified when genes undetected in >90% of cells AND <2 UMI per positive cell. Otherwise discourage it.
+   * Single-cell resolution needed -> imputation; recommend starting with a VAE (best speed-to-quality; AE also good). Then re-check TF-target or protein-complex correlations before vs after.
+- Always validate with FeaturePlot then qRT-PCR in sorted cells.
+Reply in this exact format:
+METHOD: <one short method name>
+Then 2 to 4 short sentences of reasoning grounded ONLY in the rules above. Mention normalization or imputation trade-offs when relevant. Be concrete and concise. Do not invent methods outside this list.`;
+
+document.getElementById('go').onclick = async () => {
+  const q   = document.getElementById('q').value.trim();
+  const key = document.getElementById('key').value.trim();
+  const provider = document.getElementById('provider').value;
+  const model    = document.getElementById('model').value.trim();
+  const err = document.getElementById('err');
+  const res = document.getElementById('res');
+  const scan= document.getElementById('scan');
+  err.textContent = ''; res.classList.remove('show');
+  if (!q)   { err.textContent = '› describe your data first.'; return; }
+  if (!key) { err.textContent = '› paste your API key first.'; return; }
+  const btn = document.getElementById('go'); btn.disabled = true;
+  scan.classList.add('show');
+
+  try {
+    let text;
+    if (provider === 'openai') {
+      const r = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + key },
+        body: JSON.stringify({
+          model: model || 'gpt-4o-mini',
+          messages: [
+            { role: "system", content: SYS },
+            { role: "user",   content: q }
+          ],
+          temperature: 0.3
+        })
+      });
+      if (!r.ok) throw new Error(`OpenAI ${r.status}: ${(await r.text()).slice(0,300)}`);
+      const data = await r.json();
+      text = data.choices[0].message.content;
+    } else {
+      const r = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": key,
+          "anthropic-version": "2023-06-01",
+          "anthropic-dangerous-direct-browser-access": "true"
+        },
+        body: JSON.stringify({
+          model: model || 'claude-sonnet-4-5',
+          max_tokens: 1000,
+          system: SYS,
+          messages: [{ role: "user", content: q }]
+        })
+      });
+      if (!r.ok) throw new Error(`Anthropic ${r.status}: ${(await r.text()).slice(0,300)}`);
+      const data = await r.json();
+      text = (data.content || []).filter(b => b.type === "text").map(b => b.text).join("\n").trim();
+    }
+
+    scan.classList.remove('show');
+    let verdict = "Recommendation", body = text;
+    const m = text.match(/METHOD:\s*(.+)/i);
+    if (m) { verdict = "▸ " + m[1].trim(); body = text.replace(/METHOD:\s*.+\n?/i, '').trim(); }
+    document.getElementById('verdict').textContent = verdict;
+    document.getElementById('body').textContent = body;
+    res.classList.add('show');
+  } catch (e) {
+    scan.classList.remove('show');
+    err.textContent = '› ' + e.message + '   (tip: Anthropic blocks direct browser calls. Use OpenAI or a proxy.)';
+  } finally {
+    btn.disabled = false;
+  }
+};
+
+// ---------- benchmark grid ----------
+function colorFor(v){
+  if (v < 0) return 'rgba(255,107,94,' + Math.min(.85, .3 + Math.abs(v)) + ')';
+  return 'rgba(200,242,74,' + (0.12 + v * 0.55) + ')';
+}
+
+// percent (0..100) → background colour
+function colorForPct(p){
+  if (p >= 90) return 'rgba(200,242,74,0.95)';
+  if (p >= 70) return 'rgba(200,242,74,0.65)';
+  if (p >= 50) return 'rgba(200,242,74,0.40)';
+  if (p >= 30) return 'rgba(242,184,74,0.55)';
+  if (p >= 15) return 'rgba(255,107,94,0.45)';
+  return 'rgba(255,107,94,0.70)';
+}
+
+// rank → colour (rank-1 lime, higher ranks redder)
+function colorForRank(r){
+  if (r === 1)  return 'var(--lime)';
+  if (r <= 3)   return 'rgba(200,242,74,0.60)';
+  if (r <= 10)  return 'rgba(242,184,74,0.55)';
+  if (r <= 50)  return 'rgba(255,107,94,0.50)';
+  return 'rgba(255,107,94,0.85)';
+}
+
+// ---------- methods table (Figure 2B) ----------
+function renderMethodTable(mode){
+  const body = document.getElementById('methodBody');
+  body.innerHTML = '';
+  METHODS.forEach(m => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td class="rowlab">' + m.name + '</td>';
+    if (mode === 'r') {
+      m.r.forEach(v => {
+        const td = document.createElement('td');
+        if (v === null || v === undefined) {
+          td.textContent = 'n/a';
+          td.style.color = 'var(--muted)';
+          td.style.background = 'transparent';
+        } else {
+          td.textContent = v.toFixed(2);
+          td.style.background = colorFor(v);
+          if (v > 0.5) td.style.color = 'var(--bg)';
+        }
+        tr.appendChild(td);
+      });
+    } else {
+      m.rank.forEach(rk => {
+        const td = document.createElement('td');
+        if (rk === null || rk === undefined) {
+          td.textContent = 'n/a';
+          td.style.color = 'var(--muted)';
+          td.style.background = 'transparent';
+        } else if (typeof rk === 'string') {
+          // ">1" placeholder for "not first, exact rank unknown"
+          td.textContent = rk;
+          td.style.background = 'rgba(255,107,94,0.50)';
+          td.style.color = 'var(--bg)';
+        } else if (rk === 1) {
+          td.textContent = '★ #1';
+          td.style.fontWeight = '700';
+          td.style.background = 'var(--lime)';
+          td.style.color = 'var(--bg)';
+        } else {
+          td.textContent = '#' + rk;
+          td.style.background = colorForRank(rk);
+          if (rk <= 3) td.style.color = 'var(--bg)';
+        }
+        tr.appendChild(td);
+      });
+    }
+    const noteTd = document.createElement('td');
+    noteTd.textContent = m.note; noteTd.style.textAlign = 'left'; noteTd.style.color = 'var(--muted)';
+    noteTd.style.fontSize = '11px'; noteTd.style.fontFamily = "'Spectral', serif";
+    tr.appendChild(noteTd);
+    body.appendChild(tr);
+  });
+}
+document.getElementById('metricSel').querySelectorAll('button').forEach(b => {
+  b.onclick = () => {
+    document.getElementById('metricSel').querySelectorAll('button').forEach(x => x.classList.remove('on'));
+    b.classList.add('on'); renderMethodTable(b.dataset.m);
+  };
+});
+renderMethodTable('r');
+
+// ---------- cross-species recovery ----------
+let recoveryMethod = 'P';   // 'P' or 'S'
+let recoveryView   = 'pct'; // 'pct' or 'r'
+function renderRecovery(){
+  const body = document.getElementById('recoveryBody');
+  body.innerHTML = '';
+  RECOVERY[recoveryMethod].forEach(row => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td class="rowlab">' + row.s + '</td>';
+    const values = recoveryView === 'pct' ? row.pct : row.r;
+    values.forEach(v => {
+      const td = document.createElement('td');
+      if (recoveryView === 'pct') {
+        td.textContent = v.toFixed(1) + '%';
+        td.style.background = colorForPct(v);
+        if (v >= 50) td.style.color = 'var(--bg)';
+      } else {
+        // r value in [0, 1]
+        td.textContent = v.toFixed(2);
+        td.style.background = colorFor(v);
+        if (v >= 0.5) td.style.color = 'var(--bg)';
+      }
+      tr.appendChild(td);
+    });
+    tr.style.cursor = 'pointer';
+    tr.onclick = () => tr.classList.toggle('hi');
+    body.appendChild(tr);
+  });
+  // Update note text
+  const note = document.getElementById('recoveryNote');
+  if (recoveryView === 'pct') {
+    note.innerHTML = '% rank 1: percentage of genes where the two halves correctly identify each other as the top match. Lime = high, coral = low. Soybean\'s ≥ 5 bin contains only three genes so the percentage is unstable for that one cell.';
+  } else {
+    note.innerHTML = 'median r: median correlation between each gene\'s two halves across the genes in that expression bin. Values approach 1 as expression rises.';
+  }
+}
+document.getElementById('recoverySel').querySelectorAll('button').forEach(b => {
+  b.onclick = () => {
+    document.getElementById('recoverySel').querySelectorAll('button').forEach(x => x.classList.remove('on'));
+    b.classList.add('on'); recoveryMethod = b.dataset.m; renderRecovery();
+  };
+});
+document.getElementById('recoveryMetricSel').querySelectorAll('button').forEach(b => {
+  b.onclick = () => {
+    document.getElementById('recoveryMetricSel').querySelectorAll('button').forEach(x => x.classList.remove('on'));
+    b.classList.add('on'); recoveryView = b.dataset.v; renderRecovery();
+  };
+});
+renderRecovery();
+function renderGrid(s){
+  const rows = TABLE[s];
+  let max = -2, mi = 0, mj = 0;
+  rows.forEach((r, i) => r.forEach((v, j) => { if (v > max) { max = v; mi = i; mj = j; } }));
+  const body = document.getElementById('gridBody');
+  body.innerHTML = '';
+  rows.forEach((r, i) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td class="rowlab">' + SUBSETS[i] + '</td>';
+    r.forEach((v, j) => {
+      const peak = (i === mi && j === mj);
+      const td = document.createElement('td');
+      td.textContent = v.toFixed(2);
+      td.style.background = colorFor(v);
+      if (peak) { td.classList.add('peak'); td.style.background = 'var(--lime)'; td.textContent = '★ ' + v.toFixed(2); }
+      else if (v > 0.5) { td.style.color = 'var(--bg)'; }
+      tr.appendChild(td);
+    });
+    body.appendChild(tr);
+  });
+  document.getElementById('gridNote').textContent = GRID_NOTE[s];
+}
+document.getElementById('sampleSel').querySelectorAll('button').forEach(b => {
+  b.onclick = () => {
+    document.getElementById('sampleSel').querySelectorAll('button').forEach(x => x.classList.remove('on'));
+    b.classList.add('on'); renderGrid(b.dataset.s);
+  };
+});
+renderGrid('WER');
+
+// depth bars
+(function(){
+  const c = document.getElementById('depthBars'); c.innerHTML = '';
+  const maxp = Math.max(...DEPTH.map(d => d.pct));
+  DEPTH.forEach((d, i) => {
+    const row = document.createElement('div'); row.className = 'bar-row';
+    row.innerHTML = '<div class="lab">' + d.s + '</div>' +
+      '<div class="track"><div class="fill" style="background:var(--cyan)"></div></div>' +
+      '<div class="val">' + d.pct + '%</div>';
+    c.appendChild(row);
+    setTimeout(() => { row.querySelector('.fill').style.width = (d.pct / maxp * 100) + '%'; }, 120 + i * 120);
+  });
+})();
+
+// imputation bars (orig vs VAE)
+(function(){
+  const c = document.getElementById('impBars'); c.innerHTML = '';
+  IMP.forEach((d, i) => {
+    [['orig', 'var(--coral)', d.orig, 'original'], ['vae', 'var(--lime)', d.vae, 'VAE']].forEach((p, k) => {
+      const row = document.createElement('div'); row.className = 'bar-row';
+      row.innerHTML = '<div class="lab">' + d.s + ' · ' + p[3] + '</div>' +
+        '<div class="track"><div class="fill" style="background:' + p[1] + '"></div></div>' +
+        '<div class="val">' + p[2].toFixed(2) + '</div>';
+      c.appendChild(row);
+      setTimeout(() => { row.querySelector('.fill').style.width = (p[2] * 100) + '%'; }, 100 + (i * 2 + k) * 90);
+    });
+  });
+})();
+
+// runtime bars
+function renderRT(s){
+  const c = document.getElementById('rtBars'); c.innerHTML = '';
+  const vals = RUNTIME[s]; const max = Math.max(...vals);
+  vals.forEach((v, i) => {
+    const slow = v > 100;
+    const row = document.createElement('div'); row.className = 'bar-row';
+    row.innerHTML = '<div class="lab">' + RT_LABELS[i] + '</div>' +
+      '<div class="track"><div class="fill" style="background:' + (slow ? 'var(--coral)' : 'var(--lime)') + '"></div></div>' +
+      '<div class="val">' + v + 'm</div>';
+    c.appendChild(row);
+    setTimeout(() => { row.querySelector('.fill').style.width = (v / max * 100) + '%'; }, 80 + i * 100);
+  });
+}
+document.getElementById('rtSel').querySelectorAll('button').forEach(b => {
+  b.onclick = () => {
+    document.getElementById('rtSel').querySelectorAll('button').forEach(x => x.classList.remove('on'));
+    b.classList.add('on'); renderRT(b.dataset.s);
+  };
+});
+renderRT('WER');
+
+// ---------- pseudo-bulk: single-cell vs pseudo-bulk bars ----------
+function renderPB(metric){
+  const c = document.getElementById('pbBars'); c.innerHTML = '';
+  PB_BARS[metric].forEach((d, i) => {
+    [['sc', 'var(--coral)', d.sc, 'single-cell'], ['pb', 'var(--lime)', d.pb, 'pseudo-bulk']].forEach((p, k) => {
+      const row = document.createElement('div'); row.className = 'bar-row';
+      row.innerHTML = '<div class="lab">' + d.s + ' · ' + p[3] + '</div>' +
+        '<div class="track"><div class="fill" style="background:' + p[1] + '"></div></div>' +
+        '<div class="val">' + p[2].toFixed(2) + '</div>';
+      c.appendChild(row);
+      setTimeout(() => { row.querySelector('.fill').style.width = (p[2] * 100) + '%'; }, 100 + (i * 2 + k) * 80);
+    });
+  });
+}
+document.getElementById('pbMethodSel').querySelectorAll('button').forEach(b => {
+  b.onclick = () => {
+    document.getElementById('pbMethodSel').querySelectorAll('button').forEach(x => x.classList.remove('on'));
+    b.classList.add('on'); renderPB(b.dataset.m);
+  };
+});
+renderPB('P');
+
+// ---------- pseudo-bulk: clustering comparison table ----------
+(function(){
+  const body = document.getElementById('pbClusterBody');
+  // find per-column max for ★ highlight
+  const nCols = PB_CLUSTER[0].vals.length;
+  const colMax = [];
+  for (let c = 0; c < nCols; c++) {
+    colMax.push(Math.max(...PB_CLUSTER.map(r => r.vals[c])));
+  }
+  PB_CLUSTER.forEach(row => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td class="rowlab">' + row.label + '</td>';
+    row.vals.forEach((v, j) => {
+      const td = document.createElement('td');
+      const peak = (v === colMax[j]);
+      td.textContent = (peak ? '★ ' : '') + v.toFixed(2);
+      td.style.background = colorFor(v);
+      if (v > 0.5) td.style.color = 'var(--bg)';
+      if (peak) td.style.fontWeight = '700';
+      tr.appendChild(td);
+    });
+    body.appendChild(tr);
+  });
+})();
+
+// ---------- Top correlates lookup (Tab 07) ----------
+const topCache = {};
+let topSample = 'WER';
+let topMethod = 'P';
+let topN      = 50;
+
+async function loadTop(sample) {
+  if (topCache[sample]) return topCache[sample];
+  const thinking = document.getElementById('topThinking');
+  thinking.style.display = 'inline';
+  try {
+    const r = await fetch(`gene_corr_full/${sample}.json.gz`);
+    if (!r.ok) throw new Error(`gene_corr_full/${sample}.json.gz not found (${r.status})`);
+    const ds = new DecompressionStream('gzip');
+    const text = await new Response(r.body.pipeThrough(ds)).text();
+    const data = JSON.parse(text);
+    data.gene_to_idx = {};
+    data.genes.forEach((g, i) => { data.gene_to_idx[g] = i; });
+    topCache[sample] = data;
+    return data;
+  } finally {
+    thinking.style.display = 'none';
+  }
+}
+
+async function findTopPartners() {
+  const inputGenes = parseGeneList(document.getElementById('topGenes').value);
+  const result = document.getElementById('topResult');
+  if (inputGenes.length === 0) {
+    result.style.display = 'block';
+    result.innerHTML = '<div class="err" style="color:var(--coral)">› paste at least one gene first.</div>';
+    return;
+  }
+
+  let data;
+  try {
+    data = await loadTop(topSample);
+  } catch (e) {
+    result.style.display = 'block';
+    result.innerHTML = `<div class="err" style="color:var(--coral)">› ${e.message}. (Are you serving the site over http? File:// will block fetch.)</div>`;
+    return;
+  }
+
+  const matKey = topMethod === 'P' ? 'pearson_top' : 'spearman_top';
+  const methodLabel = topMethod === 'P' ? 'Pearson' : 'Spearman';
+
+  const found = [], missing = [];
+  inputGenes.forEach(g => {
+    if (data.gene_to_idx[g] != null) found.push(g);
+    else missing.push(g);
+  });
+
+  if (found.length === 0) {
+    result.style.display = 'block';
+    result.innerHTML = `<div class="err" style="color:var(--coral)">› none of your genes were found in the ${topSample} expressed-gene set (~22,000 genes detected in &ge;10 cells).</div>` +
+      `<p class="note" style="margin-top:10px">Missing: ${missing.join(', ')}</p>`;
+    return;
+  }
+
+  let html = '';
+  for (const g of found) {
+    const idx = data.gene_to_idx[g];
+    const meanExpr = data.mean_expr[idx];
+    const partners = data[matKey][idx].slice(0, topN);
+    const cleanG = g.replace('gene:', '');
+
+    html += `<div style="margin-bottom:30px">
+      <h3 style="font-family:'Fraunces',serif;font-size:20px;margin-bottom:4px">${cleanG}</h3>
+      <p style="font-size:12px;color:var(--muted);margin-bottom:12px;font-family:'JetBrains Mono',monospace">
+        ${methodLabel} · ${topSample} · mean ${meanExpr.toFixed(3)} UMI/cell · top ${topN} partners
+      </p>
+      <table style="width:auto;min-width:60%">
+        <thead>
+          <tr>
+            <th style="text-align:right;width:50px">rank</th>
+            <th style="text-align:left">partner gene</th>
+            <th style="text-align:right;width:120px">r</th>
+            <th style="text-align:right;width:130px">mean UMI</th>
+          </tr>
+        </thead><tbody>`;
+
+    partners.forEach((p, i) => {
+      const pIdx = p[0], rVal = p[1] / 100;
+      const pGene = data.genes[pIdx];
+      const pMean = data.mean_expr[pIdx];
+      const cleanP = pGene.replace('gene:', '');
+      const bg = colorFor(rVal);
+      const fg = rVal > 0.5 ? 'var(--bg)' : 'var(--ink)';
+      html += `<tr>
+        <td style="text-align:right;color:var(--muted)">${i + 1}</td>
+        <td style="text-align:left"><strong>${cleanP}</strong></td>
+        <td style="text-align:right;background:${bg};color:${fg};font-weight:600">${rVal.toFixed(2)}</td>
+        <td style="text-align:right;color:var(--muted)">${pMean.toFixed(3)}</td>
+      </tr>`;
+    });
+    html += '</tbody></table></div>';
+  }
+
+  if (missing.length) {
+    html += `<p class="note" style="color:var(--amber)">
+      ${missing.length} gene(s) not found in this sample's expressed set: <code>${missing.join(', ')}</code>
+    </p>`;
+  }
+
+  result.style.display = 'block';
+  result.innerHTML = html;
+}
+
+document.getElementById('topSampleSel').querySelectorAll('button').forEach(b => {
+  b.onclick = () => {
+    document.getElementById('topSampleSel').querySelectorAll('button').forEach(x => x.classList.remove('on'));
+    b.classList.add('on'); topSample = b.dataset.s;
+  };
+});
+document.getElementById('topMethodSel').querySelectorAll('button').forEach(b => {
+  b.onclick = () => {
+    document.getElementById('topMethodSel').querySelectorAll('button').forEach(x => x.classList.remove('on'));
+    b.classList.add('on'); topMethod = b.dataset.m;
+  };
+});
+document.getElementById('topNSel').querySelectorAll('button').forEach(b => {
+  b.onclick = () => {
+    document.getElementById('topNSel').querySelectorAll('button').forEach(x => x.classList.remove('on'));
+    b.classList.add('on'); topN = parseInt(b.dataset.n, 10);
+  };
+});
+document.getElementById('topGo').onclick = findTopPartners;
+
+function parseGeneList(text) {
+  return text.split(/[\s,;]+/).map(g => g.trim()).filter(Boolean);
+}
+
+// pipeline steps
+(function(){
+  const c = document.getElementById('steps');
+  STEPS.forEach(st => {
+    const div = document.createElement('div'); div.className = 'step';
+    div.innerHTML = '<div class="num">' + st.n + '</div><div><h3>' + st.t + '</h3><div class="detail"><p>' + st.d + '</p></div></div>';
+    div.onclick = () => div.classList.toggle('open');
+    c.appendChild(div);
+  });
+})();
+</script>
+</body>
+</html>
