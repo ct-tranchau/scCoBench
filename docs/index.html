@@ -75,6 +75,19 @@
   .result.show{display:block;animation:fade .4s}
   .result .verdict{font-family:'Fraunces',serif;font-size:22px;color:var(--lime);margin-bottom:10px}
   .result .body{font-size:15px;line-height:1.7;white-space:pre-wrap}
+  .report{white-space:normal;font-size:15px;line-height:1.7}
+  .report h4{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--cyan);margin:20px 0 8px;font-weight:500}
+  .report h4:first-child{margin-top:0}
+  .report ul{list-style:none;margin:0}
+  .report ol{margin:0;padding-left:20px}
+  .report ul li{position:relative;padding-left:18px;margin-bottom:9px}
+  .report ul li::before{content:'▸';position:absolute;left:0;color:var(--lime-dim);font-size:12px;line-height:1.7}
+  .report ul li.warn::before{content:'!';color:var(--amber);font-weight:700}
+  .report ol li{margin-bottom:9px}
+  .report ol li::marker{color:var(--lime-dim);font-family:'JetBrains Mono',monospace;font-size:12px}
+  .report b{color:var(--lime);font-weight:500}
+  .report .cite{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--muted);letter-spacing:.04em}
+  .quote{border-left:2px solid var(--lime-dim);padding:4px 0 4px 16px;margin-top:8px;font-style:italic;color:var(--ink);font-size:15px;line-height:1.75}
   .scan{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--cyan);display:none}
   .scan.show{display:block}
   .scan .blink{animation:blink 1s steps(2) infinite}
@@ -157,7 +170,7 @@
     <div class="card">
       <div class="kicker">Suggestion from the paper · no API key needed</div>
       <h2>Pick the right method for your data</h2>
-      <p class="lead">Answer four short questions about your data and goal. The recommender applies the scCoBench decision tree (Figure 8) directly and tells you which method, data type, and cell subset to use, plus whether pseudo-bulk or imputation is justified. No API key, no upload, no server. Pure logic from the paper.</p>
+      <p class="lead">Answer five questions about your data. You get the method, the results behind it, a protocol, and the paper's caveats. No API key, no upload.</p>
 
       <div class="api-row">
         <div>
@@ -194,13 +207,22 @@
             <option value="no">no, only the raw count matrix</option>
           </select>
         </div>
+        <div style="grid-column:1/-1">
+          <label for="optZeros">how many cells have zero counts for these genes?</label>
+          <select id="optZeros">
+            <option value="unknown" selected>not sure / haven't checked</option>
+            <option value="lt50">under 50% zeros — detected in most cells</option>
+            <option value="50to90">50 to 90% zeros</option>
+            <option value="gt90">over 90% zeros — detected in a small minority of cells</option>
+          </select>
+        </div>
       </div>
 
       <button class="run" id="ruleGo" style="margin-top:14px">▸ Suggest a method</button>
 
       <div class="result" id="ruleRes">
         <div class="verdict" id="ruleVerdict"></div>
-        <div class="body" id="ruleBody"></div>
+        <div class="body report" id="ruleBody"></div>
       </div>
     </div>
 
@@ -208,7 +230,7 @@
     <div class="card">
       <div class="kicker">Optional · richer free-form analysis with your own LLM</div>
       <h2>Or describe your data in free text</h2>
-      <p class="lead">If the dropdowns above don't capture your situation, paste a longer description and we'll send it to your chosen LLM (OpenAI or Anthropic) along with the scCoBench decision rules as system context. The API is only used here if you supply your own key. Your key never leaves this browser tab and is not stored.</p>
+      <p class="lead">Describe your case in your own words. Every claim is backed by the paper's results. Your own API key, kept in this tab.</p>
 
       <textarea id="q" placeholder="e.g. I have two transcription factors, both lowly expressed (under 1 UMI per cell, detected in fewer than 10% of cells). I want to know if they co-express within the endodermis cell type..."></textarea>
 
@@ -225,7 +247,7 @@
           <label for="provider">provider</label>
           <select id="provider">
             <option value="openai" selected>OpenAI (gpt-4o-mini, browser-safe CORS)</option>
-            <option value="anthropic">Anthropic Claude (CORS blocked in most browsers)</option>
+            <option value="anthropic">Anthropic Claude (claude-sonnet-5)</option>
           </select>
         </div>
         <div>
@@ -240,10 +262,11 @@
 
       <button class="run" id="go" style="margin-top:14px">▸ Ask the LLM</button>
 
-      <div class="scan" id="scan">› reasoning over decision tree<span class="blink">_</span></div>
+      <div class="scan" id="scan">› reasoning over the manuscript<span class="blink">_</span></div>
       <div class="result" id="res">
         <div class="verdict" id="verdict"></div>
         <div class="body" id="body"></div>
+        <div class="report" id="llmPaper" style="margin-top:20px"></div>
       </div>
       <div class="err" id="err"></div>
     </div>
@@ -731,96 +754,236 @@ document.querySelectorAll('.tab').forEach(t=>{
 // ---------- provider/model defaults sync ----------
 document.getElementById('provider').addEventListener('change', e => {
   document.getElementById('model').value = e.target.value === 'anthropic'
-    ? 'claude-sonnet-4-5'
+    ? 'claude-sonnet-5'
     : 'gpt-4o-mini';
 });
 
+/* ============================================================
+   MANUSCRIPT KNOWLEDGE BASE
+   Chau, Ryu, Alajoleen, Bargmann, Schiefelbein & Li.
+   "scCoBench: Benchmarking single cell RNA-seq co-expression
+    using promoter-reporter lines."
+   Every claim below is taken from the manuscript. Both the
+   rule-based recommender and the LLM advisor read from here,
+   so the two never drift apart.
+   ============================================================ */
+const PAPER = {
+  title: 'scCoBench: Benchmarking single cell RNA-seq co-expression using promoter-reporter lines',
+  system: 'Four Arabidopsis root promoter-reporter lines (pWER:GFP, pSCR:GFP, pCORTEX:GFP, pPET111:YFP) and their native genes serve as the ground truth: because reporter and native gene share a promoter, they should rank as each other’s top correlate genome-wide. Whether a method recovers that pair is the benchmark.',
+
+  // Per-figure evidence. Reused by the rule engine and by the LLM system prompt.
+  evidence: {
+    pearson: { fig: 'Fig 2B, Suppl. Fig 9',
+      text: 'Pearson and Bicor gave lower absolute r than CS-CORE or scCOSMIX, but were the only methods that ranked the reporter–native pair first, in 3 of the 4 lines. Pearson stayed robust across raw, normalised and scaled data, and the same behaviour reappeared in scDesign2-simulated data. It is the fast, reliable default.' },
+    highRaw: { fig: 'Fig 2E',
+      text: 'For the well-expressed pairs, the highest correlation came from RAW counts across ALL cells: r = 0.91 (WER), 0.81 (CORTEX), 0.82 (PET111). Normalisation and scaling LOWERED the correlation for these genes — the usual preprocessing hurts here.' },
+    sparseNorm: { fig: 'Fig 2E, Suppl. Fig 8A-B',
+      text: 'For the sparse SCR pair the pattern inverts: the highest Pearson came from NORMALISED data restricted to cells expressing BOTH genes, and Spearman/Kendall peaked in normalised or scaled data on that same subset. With most cells at zero, the both-expressing subset holds only tiny discrete values (1–3 UMI); normalisation damps sampling noise and amplifies the real relative variation.' },
+    rankBased: { fig: 'Fig 2B',
+      text: 'Spearman and Kendall gave higher correlation and a better rank than Pearson or Bicor specifically for the sparse SCR pair. Rank-based metrics are the rescue path for high-sparsity genes.' },
+    cscore: { fig: 'Fig 2B',
+      text: 'CS-CORE returned the highest r in two samples (WER 1.0, CORTEX 0.93) but ranked the true partner 44th for CORTEX and 61st for PET111 — it estimates co-expression WITHIN cell types and misbehaves when applied across all cells. Use it inside a cluster, and judge it by rank, not by r.' },
+    cosmix: { fig: 'Fig 2B, Suppl. Fig 3-4',
+      text: 'scCOSMIX gave the highest r in three samples (CORTEX 0.93, PET111 0.88, SCR 0.68) and handled low expression well, but failed to rank the native gene first in ANY of the four samples, and was the slowest method tested (mean 71.1 s per correlation).' },
+    hdwgcna: { fig: 'Suppl. Fig 5A-E',
+      text: 'hdWGCNA placed reporter and native gene in the same co-expression module in all four samples — which is what the method is for — but their TOM values were low and the reporter never appeared among the top co-expressed partners. Use it for modules, not for ranking a specific pair.' },
+    otherMetrics: { fig: 'Suppl. Fig 6A-B',
+      text: 'Mutual information confirmed the reporter–native relationship in line with the correlation methods. Distance metrics (Euclidean, Manhattan, Chebyshev) did NOT consistently identify the reporter as most similar to its native gene — distance-based similarity is a poor choice for this question.' },
+    sparsityLimit: { fig: 'Fig 2C-D, Suppl. Fig 1E',
+      text: 'Correlations were consistently weakest for SCR, whose reporter drew only 526 reads out of more than 660 million in that sample. A large fraction of cells expressed neither gene in every sample. When a pair is this sparse, the ceiling is set by the data, not by the metric.' },
+    pseudobulk: { fig: 'Fig 3E-F, Suppl. Fig 10-11, Suppl. Fig 13',
+      text: 'Pseudo-bulk by cluster raised Pearson above 0.8 for every sample and every data type, under both clustering schemes. The gain is very uneven: the sparse SCR pair gained 0.64 in Pearson r, while WER, CORTEX and PET111 — whose positive cells already carry 4–12 UMI — gained only 0.08 to 0.18. Rank-based (Spearman, Kendall) pseudo-bulk stayed variable, staying low for CORTEX even with cell-type clusters.' },
+    pbCriterion: { fig: 'Discussion, Suppl. Fig 13',
+      text: 'The manuscript states the threshold explicitly: pseudo-bulk is recommended when the genes are undetected in more than 90% of cells AND carry fewer than 2 UMI in the cells that do express them. Outside that regime it is not a default step — it costs single-cell resolution for little or no gain.' },
+    omg: { fig: 'Fig 3B, 3D, 3F',
+      text: 'Biologically informed cell-type clusters (OMG, ortho-marker-groups) generally gave higher and more consistent pseudo-bulk correlations than the unsupervised Seurat default (Louvain, resolution 0.5). Cell identity matters when aggregating.' },
+    imputation: { fig: 'Fig 4D',
+      text: 'All five imputation methods raised Pearson and Spearman between reporter and native gene; AE and VAE gave the most consistent gains across samples. The largest single improvement was SCR, from Pearson r = 0.30 in the original data to 0.96 after VAE imputation.' },
+    imputationMech: { fig: 'Fig 4C, Suppl. Fig 12',
+      text: 'scImpute and SAVER mostly increased the NUMBER of cells expressing both genes. AE, VAE and GAN raised the overlapping PERCENTAGE without inflating that number much — the gain comes from denoising cells that already express the genes, not from inventing expression in negative cells.' },
+    runtime: { fig: 'Fig 4E',
+      text: 'Training AE, VAE and GAN from scratch took significantly less runtime than running scImpute or SAVER.' },
+    tfTargets: { fig: 'Fig 5A-D',
+      text: 'After VAE imputation, average correlation among a TF’s known DAP-seq target genes rose significantly (p < 0.01) while average target expression did NOT rise — imputation recovered biologically meaningful signal without inflating expression. This before/after TF-target check is the manuscript’s recommended way to verify that imputation helped rather than smoothed.' },
+    npc: { fig: 'Fig 6',
+      text: 'On VAE-imputed data, nucleoporin genes correlated more strongly with transcription-regulation, translation-regulation and RNA-processing partners, and stayed low against randomly chosen background genes — an independent protein-complex check that imputation preserved specificity.' },
+    validation: { fig: 'Fig 7',
+      text: 'Top correlates predicted from the pipeline were confirmed at the bench: AT1G70370 (pCORTEX:GFP) and SMR10/AT2G28870 (pPET111:YFP) were significantly enriched by qRT-PCR in GFP+/YFP+ sorted cells with minimal expression in non-labelled cells. Prediction → FeaturePlot → qRT-PCR in sorted cells is the validated route.' }
+  },
+
+  // Figure 8 — the guideline the paper puts forward.
+  guideline: [
+    { n: 'Step 0', t: 'Start from the raw read-count matrix.' },
+    { n: 'Step 1', t: 'Measure the gene–gene relationship. Highly expressed genes: Pearson on raw counts across all cells. Lowly expressed genes: Pearson on normalised/scaled data using only cells expressing both genes, or scCOSMIX. Within one cell type: CS-CORE. Gene modules: hdWGCNA.' },
+    { n: 'Step 2', t: 'Visualise the expression pattern (FeaturePlot) to sanity-check what the number is claiming.' },
+    { n: 'Step 3', t: 'Validate the predicted co-expression experimentally.' },
+    { n: 'Step 4', t: 'If the co-expression needs improving and bulk resolution is acceptable: aggregate by cell type into pseudo-bulk profiles, then return to Step 2.' },
+    { n: 'Step 5', t: 'If single-cell resolution must be kept: impute the matrix. A VAE-based approach is the recommended starting point.' },
+    { n: 'Step 6', t: 'Judge the imputation by recomputing a biologically meaningful correlation — TF–target, or protein-complex members — before and after, and comparing.' }
+  ],
+
+  // Limitations, verbatim in substance from the Discussion.
+  limits: [
+    { t: 'Gene ranking is not stable across samples', d: 'Even with the same correlation method, the top co-expressed partners of a gene differ between datasets, from technical noise and biological batch effects. Shortlist candidates, then inspect their expression patterns and drop the discordant ones rather than trusting a single ranking.', fig: 'Suppl. Fig 14-15' },
+    { t: 'Pseudo-bulk trades away resolution and power', d: 'Aggregation reduces the number of observations to the number of clusters, which can make statistical significance hard to reach (see CORTEX) and can hide rare or subtle cell-type-specific co-expression.', fig: 'Fig 3E-F' },
+    { t: 'Imputation rests on assumptions and can smooth real biology', d: 'Imputation can artificially increase similarity between genes or erase genuine variation. Selective imputation — recovering only low-expression values while leaving moderate and high expression untouched — is the suggested mitigation.', fig: 'Discussion' },
+    { t: 'Not tested under dynamic or perturbed conditions', d: 'Method performance was not assessed on time-series or multi-condition data, where gene–gene relationships can shift.', fig: 'Discussion' },
+    { t: 'One species, one modality', d: 'All conclusions come from Arabidopsis thaliana protoplast scRNA-seq. snRNA-seq typically yields lower expression, so the pseudo-bulk and imputation recommendations should, if anything, matter more there. Experimental validation covered a subset of gene pairs.', fig: 'Discussion' }
+  ],
+
+  conclusion: 'The scCoBench pipeline provided a flexible framework for characterizing gene-gene relationships in scRNA-seq data, accounting for data sparsity, gene expression heterogeneity, and dropout effects. The integration of promoter-reporter benchmarks, multiple correlation measures, and deep learning-based imputation highlights the potential of computational tools to improve the resolution and interpretability of single-cell datasets. Our results highlighted the importance of choosing appropriate correlation methods, considering the impact of non-expressing cells, and employing advanced techniques like pseudo-bulk analysis and data imputation to overcome the challenges inherent in scRNA-seq data.'
+};
+
+// ---------- small HTML helpers ----------
+function esc(s){ return String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+function bullets(items){
+  return '<ul>' + items.map(i =>
+    '<li' + (i.warn ? ' class="warn"' : '') + '>' + i.html +
+    (i.fig ? ' <span class="cite">[' + esc(i.fig) + ']</span>' : '') + '</li>').join('') + '</ul>';
+}
+function ev(key){ const e = PAPER.evidence[key]; return { html: esc(e.text), fig: e.fig }; }
+
 // ---------- rule-based recommender (no API) ----------
+// Reads the decision tree of Figure 8 plus the quantitative thresholds
+// stated in the Discussion, and reports the evidence behind each call.
 function ruleSuggest() {
-  const expr   = document.getElementById('optGenes').value;
-  const goal   = document.getElementById('optGoal').value;
-  const res    = document.getElementById('optResolution').value;
-  const clus   = document.getElementById('optClusters').value;
+  const expr  = document.getElementById('optGenes').value;
+  const goal  = document.getElementById('optGoal').value;
+  const res   = document.getElementById('optResolution').value;
+  const clus  = document.getElementById('optClusters').value;
+  const zeros = document.getElementById('optZeros').value;
 
-  // Decide method and data prep based on the decision tree
-  let method, dataPrep, subset, processing, why = [];
+  const sparse   = expr === 'low' || zeros === 'gt90';
+  const keepSC   = res === 'sc';
+  // The paper's explicit pseudo-bulk criterion: >90% zeros AND <2 UMI per positive cell.
+  const pbMet    = zeros === 'gt90' && expr === 'low';
+  const pbMaybe  = !pbMet && (expr === 'low' || zeros === 'gt90');
 
-  // 1) Method
+  let verdict, dataPrep, subset, why = [], steps = [], expect = [], caveats = [];
+
+  // ---- 1) Method, from Figure 8 Step 1 ----
   if (goal === 'celltype') {
-    method = 'CS-CORE';
-    why.push('CS-CORE estimates correlation within a single cell-type cluster, the case it was designed for.');
+    verdict = 'CS-CORE, inside one cell-type cluster';
+    dataPrep = 'as CS-CORE requires (it models the counts itself)';
+    subset = 'the cells of one cell-type cluster';
+    why.push(ev('cscore'));
+    steps.push('Assign cell types first, then run CS-CORE separately within each cluster of interest — not across the whole matrix.');
+    steps.push('Read the <b>rank</b> of your gene of interest among all candidates, not only the r value. CS-CORE reached r = 1.0 on WER yet ranked the true partner 44th and 61st in two other samples.');
   } else if (goal === 'module') {
-    method = 'hdWGCNA';
-    why.push('For module discovery, hdWGCNA assigns genes to co-expression modules and groups the reporter and native gene correctly in the same module across all four reporter samples.');
-  } else if (expr === 'high') {
-    method = 'Pearson';
-    dataPrep = 'raw counts'; subset = 'all cells';
-    why.push('For highly expressed genes, Pearson on raw counts is the fastest reliable choice. In the benchmark it ranked the native gene first in 3 of 4 samples.');
-  } else if (expr === 'low') {
-    method = 'Pearson (rank-based: Spearman or Kendall preferred for very sparse) or scCOSMIX';
-    dataPrep = 'log-normalised or scaled'; subset = 'cells expressing both genes';
-    why.push('For sparse genes, Pearson on raw counts is dominated by zeros. Use normalised data restricted to cells where both genes are detected, or scCOSMIX (more compute, designed for sparse counts).');
-    why.push('Rank-based methods (Spearman, Kendall) recover the sparse pair better than Pearson; in the benchmark they lifted the SCR rank from #47 to top-10.');
-  } else if (expr === 'mid') {
-    method = 'Pearson';
-    dataPrep = 'raw counts'; subset = 'all cells';
-    why.push('Pearson on raw counts is the default for moderate expression. Switch to normalised data on the both-expressing subset if you see signal weakness.');
+    verdict = 'hdWGCNA, for modules only';
+    dataPrep = 'metacells, normalised as the hdWGCNA workflow specifies';
+    subset = 'all cells, aggregated into metacells';
+    why.push(ev('hdwgcna'));
+    steps.push('Build modules with hdWGCNA and read module membership — that is the question it answers reliably.');
+    steps.push('Do <b>not</b> rank an individual partner gene by TOM. In the benchmark the reporter and native gene landed in the same module but never in each other’s top TOM partners; confirm any specific pair with Pearson or Spearman instead.');
+  } else if (sparse) {
+    verdict = 'Pearson on normalised data, cells expressing both genes — plus Spearman';
+    dataPrep = 'log-normalised (try scaled too)';
+    subset = 'only cells expressing both genes';
+    why.push(ev('sparseNorm'));
+    why.push(ev('rankBased'));
+    why.push(ev('sparsityLimit'));
+    steps.push('Restrict to the cells where <b>both</b> genes are detected, normalise, then compute Pearson. This is the one regime where normalisation helps rather than hurts.');
+    steps.push('Compute Spearman and Kendall on the same subset and compare — rank-based metrics beat Pearson on the sparsest pair in the benchmark.');
+    steps.push('If you have the compute, add scCOSMIX as a cross-check, but judge it by rank: it gave the highest r on three samples and still ranked the true partner below first on all four.');
+    if (expr === 'mixed') steps.push('Because your pairs span the expression range, split them: run the raw-counts / all-cells route for the well-expressed ones and this route only for the sparse ones.');
+  } else if (expr === 'mixed') {
+    verdict = 'Pearson on raw counts across all cells, as a first pass';
+    dataPrep = 'raw counts';
+    subset = 'all cells';
+    why.push(ev('pearson'));
+    why.push(ev('highRaw'));
+    why.push(ev('sparseNorm'));
+    steps.push('Run Pearson on raw counts over all cells for every pair, then triage by detection rate.');
+    steps.push('For any pair that comes back weak <b>and</b> is mostly zeros, redo it on log-normalised data restricted to cells expressing both genes, and add Spearman.');
   } else {
-    // mixed
-    method = 'Pearson on raw counts as a first pass';
-    dataPrep = 'raw counts'; subset = 'all cells';
-    why.push('Mixed expression: start with Pearson on raw counts. Inspect each pair individually; for the sparse ones, redo with log-normalised data and the both-expressing subset.');
+    verdict = 'Pearson on raw counts, across all cells';
+    dataPrep = 'raw counts — do not normalise or scale';
+    subset = 'all cells';
+    why.push(ev('pearson'));
+    why.push(ev('highRaw'));
+    steps.push('Compute Pearson directly on the raw count matrix over all cells. Normalising or scaling these genes lowered the correlation in the benchmark.');
+    if (expr === 'mid') steps.push('If the result looks weaker than expected, rerun on log-normalised data restricted to cells expressing both genes before concluding the pair does not co-express.');
   }
 
-  // 2) Pseudo-bulk justification
-  let pseudoBulk = null;
-  if (expr === 'low') {
-    if (res === 'bulk') {
-      pseudoBulk = 'Recommended. Pseudo-bulk by cell-type cluster will substantially raise the correlation. In the benchmark, SCR (sparsest pair) climbed from r = 0.30 to 0.94 after pseudo-bulk with OMG cell-type clusters.';
-    } else {
-      pseudoBulk = 'Skip pseudo-bulk to keep single-cell resolution. Use imputation instead (see below).';
-    }
-  } else {
-    pseudoBulk = 'Not needed. Pseudo-bulk is only justified when genes are undetected in over 90% of cells and carry fewer than 2 UMI per positive cell. Otherwise it sacrifices resolution for no gain.';
+  if (goal === 'anchor') {
+    steps.push('Rank all genes against your marker and take the top of the list, but treat the ranking as a shortlist rather than an answer — rankings were not stable across samples in this study.');
+  }
+  if (goal === 'tf') {
+    why.push(ev('tfTargets'));
+    steps.push('Compute pairwise correlation among the TF’s known targets, not just TF-to-target. The manuscript used exactly this average-target-correlation measure as its readout of biological signal.');
   }
 
-  // 3) Imputation
-  let impute = null;
-  if (expr === 'low' && res === 'sc') {
-    impute = 'Recommended. Train a VAE (best speed-to-quality balance in the benchmark; AE is a close second). The SCR reporter correlation climbed from 0.30 to 0.96 after VAE imputation without inflating raw expression. Re-check biology (TF-target / protein complex) before vs after.';
-  } else if (expr === 'mid' && res === 'sc') {
-    impute = 'Optional. Try only if raw and normalised Pearson both look weak.';
-  } else {
-    impute = 'Not needed.';
-  }
+  // ---- 2) Figure 8 Step 2 and 3: look, then validate ----
+  steps.push('Before believing any number, plot both genes with FeaturePlot and check the spatial pattern agrees with the correlation you computed.');
 
-  // 4) Cluster note
-  let clusterNote = null;
-  if (goal === 'celltype' || (expr === 'low' && res === 'bulk')) {
+  // ---- 3) Improve the correlation: pseudo-bulk (Step 4) vs imputation (Step 5) ----
+  let pbLine, impLine;
+  if (!keepSC && (pbMet || pbMaybe)) {
+    pbLine = pbMet
+      ? 'Recommended — your data meets the manuscript’s stated criterion (over 90% zeros and under 2 UMI per positive cell), and you do not need single-cell resolution.'
+      : 'Probably worth trying, but confirm first. The criterion is over 90% zeros AND under 2 UMI in the cells that do express the gene; you meet part of it. Compute both numbers before committing.';
+    why.push(ev('pseudobulk'));
+    why.push(ev('pbCriterion'));
+    why.push(ev('omg'));
+    steps.push('Aggregate expression by cell type into pseudo-bulk profiles, then recompute the correlation and re-plot.');
+    expect.push('For a pair this sparse the benchmark gained <b>0.64</b> in Pearson r after pseudo-bulk. For pairs whose positive cells already carry 4–12 UMI the gain was only 0.08 to 0.18.');
     if (clus === 'no') {
-      clusterNote = 'You will need cell-type labels first. Run Seurat clustering or, better, the OMG cell-type assignment for biologically informed groups.';
+      steps.push('You have no cell-type labels yet — cluster first. Seurat’s default works, but assign actual cell types (OMG-style) if you can: biologically informed clusters gave higher and more consistent pseudo-bulk correlations.');
     } else if (clus === 'yes') {
-      clusterNote = 'Use OMG-style cell-type labels if available. In the benchmark, OMG clustering beat Seurat default for SCR Spearman by ~0.2.';
+      steps.push('Prefer OMG-style cell-type labels over the Seurat default resolution-0.5 clusters where you have them — the difference was largest for the sparsest pair.');
     } else {
-      clusterNote = 'OMG cell-type labels are the right choice. The benchmark shows the largest gains from biologically informed clustering.';
+      steps.push('Your OMG cell-type labels are the right grouping to aggregate on; that is the scheme that performed best here.');
     }
+    caveats.push(PAPER.limits[1]);
+  } else if (keepSC && (pbMet || pbMaybe)) {
+    pbLine = 'Skip it. Pseudo-bulk would raise the correlation but costs exactly the single-cell resolution you said you need. Impute instead.';
+  } else {
+    pbLine = 'Not indicated. The manuscript recommends pseudo-bulk only when genes are undetected in over 90% of cells and carry under 2 UMI per positive cell; outside that regime it trades resolution for little or no gain.';
   }
 
-  // 5) Validation
-  const validation = 'Validate the predicted co-expression with a FeaturePlot first to eyeball the spatial pattern, then by qRT-PCR in FACS-sorted populations if the pair is novel.';
+  if (keepSC && (pbMet || pbMaybe || sparse)) {
+    impLine = 'Recommended. Start with a VAE (AE is a close second); both were the most consistent performers and trained far faster than scImpute or SAVER.';
+    why.push(ev('imputation'));
+    why.push(ev('imputationMech'));
+    why.push(ev('runtime'));
+    steps.push('Train a VAE on your count matrix, recompute the correlation on the imputed data, and keep the single-cell resolution.');
+    steps.push('Then run the Step 6 check: recompute a correlation you already know the biology of — TF and its DAP-seq targets, or members of one protein complex — before and after imputation. Confirm the correlation rose while the expression level did not.');
+    expect.push('The sparsest pair in the benchmark went from Pearson r = <b>0.30 to 0.96</b> after VAE imputation, with no inflation of expression level.');
+    caveats.push(PAPER.limits[2]);
+  } else if (keepSC && expr === 'mid') {
+    impLine = 'Optional. Only reach for it if both the raw-counts and the normalised / both-expressing routes come back weak.';
+  } else if (!keepSC && (pbMet || pbMaybe)) {
+    impLine = 'Not needed on top of pseudo-bulk — pick one. Pseudo-bulk already recovers the signal when bulk resolution is acceptable.';
+  } else {
+    impLine = 'Not needed. Your genes are not in the dropout-limited regime where imputation earns its assumptions.';
+  }
 
-  // Build output
-  const verdict = '▸ ' + method;
-  let body = why.join('\n\n');
-  body += '\n\n• Data type: ' + (dataPrep || 'method-specific (see method docs)');
-  body += '\n• Cell subset: ' + (subset || 'method-specific');
-  body += '\n• Pseudo-bulk: ' + pseudoBulk;
-  body += '\n• Imputation: ' + impute;
-  if (clusterNote) body += '\n• Clustering: ' + clusterNote;
-  body += '\n\nValidation: ' + validation;
+  // ---- 4) Validate (Step 3) ----
+  steps.push('Validate a novel prediction at the bench: qRT-PCR in FACS-sorted reporter-positive vs non-labelled cells. That is how AT1G70370 and SMR10 were confirmed here.');
+  why.push(ev('validation'));
 
-  document.getElementById('ruleVerdict').textContent = verdict;
-  document.getElementById('ruleBody').textContent = body;
+  // ---- 5) Caveats that always apply ----
+  caveats.unshift(PAPER.limits[0]);
+  caveats.push(PAPER.limits[4]);
+
+  // ---- Render ----
+  let html = '';
+  html += '<h4>Setup</h4>' + bullets([
+    { html: '<b>Data type:</b> ' + esc(dataPrep) },
+    { html: '<b>Cell subset:</b> ' + esc(subset) },
+    { html: '<b>Pseudo-bulk:</b> ' + esc(pbLine) },
+    { html: '<b>Imputation:</b> ' + esc(impLine) }
+  ]);
+  html += '<h4>Why the paper says so</h4>' + bullets(why);
+  html += '<h4>What to do, in order</h4><ol>' + steps.map(s => '<li>' + s + '</li>').join('') + '</ol>';
+  if (expect.length) html += '<h4>What to expect</h4>' + bullets(expect.map(e => ({ html: e })));
+  html += '<h4>What the authors warn about</h4>' +
+    bullets(caveats.map(l => ({ html: '<b>' + esc(l.t) + '.</b> ' + esc(l.d), fig: l.fig, warn: true })));
+  html += '<h4>The manuscript’s bottom line</h4><div class="quote">' + esc(PAPER.conclusion) + '</div>';
+
+  document.getElementById('ruleVerdict').textContent = '▸ ' + verdict;
+  document.getElementById('ruleBody').innerHTML = html;
   document.getElementById('ruleRes').classList.add('show');
 }
 document.getElementById('ruleGo').onclick = ruleSuggest;
@@ -831,19 +994,46 @@ chips.querySelectorAll('.chip').forEach(c=>{
   c.onclick=()=>{ document.getElementById('q').value=c.textContent; };
 });
 
-const SYS = `You are the scCoBench co-expression method advisor. You ONLY recommend methods using this decision tree from the paper (Figure 8):
-- HIGHLY expressed genes: Pearson correlation on RAW counts across ALL cells. Fast baseline. Normalization usually LOWERS correlation for these.
-- LOWLY expressed / sparse genes: Pearson on NORMALIZED or SCALED data using ONLY cells expressing BOTH genes; or scCOSMIX (more compute-intensive) for very sparse data.
-- Correlation WITHIN a specific cell type: CS-CORE.
-- Goal is gene MODULES: hdWGCNA.
-- Rank-based (Spearman/Kendall) are more robust than Pearson for very sparse genes.
-- If the user needs to IMPROVE weak correlation:
-   * Bulk resolution acceptable -> pseudo-bulk (aggregate by cell type). ONLY justified when genes undetected in >90% of cells AND <2 UMI per positive cell. Otherwise discourage it.
-   * Single-cell resolution needed -> imputation; recommend starting with a VAE (best speed-to-quality; AE also good). Then re-check TF-target or protein-complex correlations before vs after.
-- Always validate with FeaturePlot then qRT-PCR in sorted cells.
-Reply in this exact format:
-METHOD: <one short method name>
-Then 2 to 4 short sentences of reasoning grounded ONLY in the rules above. Mention normalization or imputation trade-offs when relevant. Be concrete and concise. Do not invent methods outside this list.`;
+// The system prompt is assembled from the same PAPER object the rule-based
+// recommender uses, so the LLM is reasoning over the manuscript's own
+// findings, guideline, limitations and conclusion — not a paraphrase of them.
+const SYS = `You are the scCoBench advisor. You answer questions about gene co-expression analysis in single-cell RNA-seq using ONLY the manuscript below. It is your entire evidence base.
+
+=== PAPER ===
+${PAPER.title}
+
+BENCHMARK DESIGN
+${PAPER.system}
+
+FINDINGS (each line ends with the figure it comes from)
+${Object.values(PAPER.evidence).map(e => '- ' + e.text + ' [' + e.fig + ']').join('\n')}
+
+RECOMMENDED GUIDELINE (Figure 8)
+${PAPER.guideline.map(g => '- ' + g.n + ': ' + g.t).join('\n')}
+
+LIMITATIONS THE AUTHORS STATE
+${PAPER.limits.map(l => '- ' + l.t + ': ' + l.d + ' [' + l.fig + ']').join('\n')}
+
+CONCLUSION (verbatim)
+${PAPER.conclusion}
+=== END PAPER ===
+
+HOW TO ANSWER
+Reply in exactly this structure, plain text, no markdown symbols:
+
+METHOD: <one short method name and the data type / cell subset to run it on>
+WHY: 2-4 sentences of reasoning drawn only from the findings above. Cite the figure in square brackets after each claim, e.g. [Fig 2E]. Quote the actual numbers when they exist.
+STEPS: a numbered list, 3-6 items, of what this person should actually do next, in the order of the Figure 8 guideline: measure, visualise, improve if needed, validate.
+EXPECT: what the paper's numbers predict will happen if they follow the steps. Omit this line if the paper gives no relevant number.
+CAVEATS: the limitations from the list above that actually bear on this person's situation, and what to do about them.
+
+RULES
+- Never recommend a method that is not in the paper: Pearson, Bicor, Spearman, Kendall, CS-CORE, scCOSMIX, p-sctransform, mutual information, hdWGCNA, pseudo-bulk, and the imputation methods scImpute, SAVER, AE, VAE, GAN.
+- Do not soften the paper's counterintuitive results. Normalisation LOWERS correlation for well-expressed genes; it only helps for sparse genes on the both-expressing subset. High r with a bad rank is a failure, not a success.
+- Pseudo-bulk is not a default step. Recommend it only when the genes are undetected in over 90% of cells AND carry under 2 UMI per positive cell, and say so explicitly. If the user has not told you the detection rate, tell them to measure it first.
+- If single-cell resolution must be kept, recommend imputation (start with VAE) instead of pseudo-bulk, and always include the Step 6 before/after biological check.
+- If the question falls outside what the paper tested — other species, snRNA-seq, time-series or perturbation designs, methods not benchmarked — say plainly that the paper does not cover it, then give the closest supported guidance.
+- Be concrete and concise. No preamble, no restating the question.`;
 
 document.getElementById('go').onclick = async () => {
   const q   = document.getElementById('q').value.trim();
@@ -887,8 +1077,8 @@ document.getElementById('go').onclick = async () => {
           "anthropic-dangerous-direct-browser-access": "true"
         },
         body: JSON.stringify({
-          model: model || 'claude-sonnet-4-5',
-          max_tokens: 1000,
+          model: model || 'claude-sonnet-5',
+          max_tokens: 2000,
           system: SYS,
           messages: [{ role: "user", content: q }]
         })
@@ -904,10 +1094,15 @@ document.getElementById('go').onclick = async () => {
     if (m) { verdict = "▸ " + m[1].trim(); body = text.replace(/METHOD:\s*.+\n?/i, '').trim(); }
     document.getElementById('verdict').textContent = verdict;
     document.getElementById('body').textContent = body;
+    // Always close with the manuscript's own words, so the LLM answer sits
+    // next to the source it was told to reason from.
+    document.getElementById('llmPaper').innerHTML =
+      '<h4>The manuscript’s bottom line</h4><div class="quote">' + esc(PAPER.conclusion) + '</div>' +
+      '<p class="cite" style="margin-top:10px">Answer generated from the scCoBench manuscript as system context. Cross-check the figure citations above against tab 05 and the full paper.</p>';
     res.classList.add('show');
   } catch (e) {
     scan.classList.remove('show');
-    err.textContent = '› ' + e.message + '   (tip: Anthropic blocks direct browser calls. Use OpenAI or a proxy.)';
+    err.textContent = '› ' + e.message + '   (tip: check the key and the model name. Anthropic keys must be enabled for direct browser access; otherwise use OpenAI or a small proxy.)';
   } finally {
     btn.disabled = false;
   }
